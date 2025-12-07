@@ -19,10 +19,10 @@ public class RadarController : ControllerBase
     }
 
     /// <summary>
-    /// Get radar screenshot for a location. Returns cached screenshot if available, or triggers background update.
+    /// Get radar data for a location. Returns JSON with all frames and their URLs. Triggers background update if cache is stale.
     /// </summary>
     [HttpGet("{suburb}/{state}")]
-    public async Task<ActionResult> GetScreenshot(string suburb, string state, CancellationToken cancellationToken = default)
+    public async Task<ActionResult<RadarResponse>> GetRadar(string suburb, string state, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -45,32 +45,69 @@ public class RadarController : ControllerBase
                 }
             });
 
-            // Return cached screenshot if it exists (no waiting)
-            var result = await _bomRadarService.GetCachedScreenshotAsync(suburb, state, cancellationToken);
+            // Return cached radar data if available (no waiting)
+            var result = await _bomRadarService.GetCachedRadarAsync(suburb, state, cancellationToken);
             
-            if (result == null)
+            if (result == null || result.Frames.Count == 0)
             {
                 return NotFound(new { 
-                    error = "Screenshot not found in cache. Cache update has been triggered in background. Please retry in a few moments.",
+                    error = "Screenshots not found in cache. Cache update has been triggered in background. Please retry in a few moments.",
                     retryAfter = 30, // seconds
                     refreshEndpoint = $"/api/radar/{suburb}/{state}/refresh"
                 });
             }
             
-            // Return the image file
-            if (System.IO.File.Exists(result.ImagePath))
+            // Generate URLs for frames if not already set
+            if (result.Frames.Any(f => string.IsNullOrEmpty(f.ImageUrl)))
             {
-                var imageBytes = await System.IO.File.ReadAllBytesAsync(result.ImagePath, cancellationToken);
-                var contentType = "image/png";
-                return File(imageBytes, contentType, Path.GetFileName(result.ImagePath));
+                foreach (var frame in result.Frames)
+                {
+                    frame.ImageUrl = $"/api/radar/{Uri.EscapeDataString(suburb)}/{Uri.EscapeDataString(state)}/frame/{frame.FrameIndex}";
+                }
             }
-
-            return NotFound(new { error = "Screenshot file not found" });
+            
+            return Ok(result);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting cached radar screenshot for suburb: {Suburb}, state: {State}", suburb, state);
-            return StatusCode(500, new { error = "An error occurred while getting the radar screenshot", message = ex.Message });
+            _logger.LogError(ex, "Error getting cached radar screenshots for suburb: {Suburb}, state: {State}", suburb, state);
+            return StatusCode(500, new { error = "An error occurred while getting the radar screenshots", message = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Get a specific frame image for a location.
+    /// </summary>
+    [HttpGet("{suburb}/{state}/frame/{frameIndex}")]
+    public async Task<ActionResult> GetFrame(string suburb, string state, int frameIndex, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var validationError = ValidationHelper.ValidateLocation(suburb, state);
+            if (validationError != null)
+            {
+                return BadRequest(new { error = validationError });
+            }
+            
+            if (frameIndex < 0 || frameIndex > 6)
+            {
+                return BadRequest(new { error = "Frame index must be between 0 and 6" });
+            }
+            
+            var frame = await _bomRadarService.GetCachedFrameAsync(suburb, state, frameIndex, cancellationToken);
+            
+            if (frame == null || !System.IO.File.Exists(frame.ImagePath))
+            {
+                return NotFound(new { error = $"Frame {frameIndex} not found for {suburb}, {state}" });
+            }
+            
+            var imageBytes = await System.IO.File.ReadAllBytesAsync(frame.ImagePath, cancellationToken);
+            return File(imageBytes, "image/png", $"frame_{frameIndex}.png");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting frame {FrameIndex} for suburb: {Suburb}, state: {State}", frameIndex, suburb, state);
+            return StatusCode(500, new { error = "An error occurred while getting the frame", message = ex.Message });
         }
     }
 

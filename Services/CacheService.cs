@@ -22,67 +22,202 @@ public class CacheService : ICacheService
     }
 
     /// <summary>
-    /// Gets the cached screenshot path and metadata for a location
+    /// Gets the cached screenshot folder path and metadata for a location
     /// </summary>
-    public async Task<(string? screenshotPath, LastUpdatedInfo? metadata)> GetCachedScreenshotWithMetadataAsync(
+    public async Task<(string? cacheFolderPath, LastUpdatedInfo? metadata)> GetCachedScreenshotWithMetadataAsync(
         string suburb, 
         string state, 
         CancellationToken cancellationToken = default)
     {
-        var pattern = FilePathHelper.GetCacheFilePattern(suburb, state);
-        _logger.LogDebug("Looking for cached files matching pattern: {Pattern} in directory: {Directory}", pattern, _cacheDirectory);
+        var pattern = FilePathHelper.GetCacheFolderPattern(suburb, state);
+        _logger.LogDebug("Looking for cached folders matching pattern: {Pattern} in directory: {Directory}", pattern, _cacheDirectory);
         
-        var files = Directory.GetFiles(_cacheDirectory, pattern)
+        var folders = Directory.GetDirectories(_cacheDirectory, pattern)
             .OrderByDescending(f => 
             {
-                // Try to extract timestamp from filename first
-                var timestamp = LocationHelper.ParseTimestampFromFilename(f);
+                // Try to extract timestamp from folder name
+                var folderName = Path.GetFileName(f);
+                var timestamp = LocationHelper.ParseTimestampFromFilename(folderName);
                 if (timestamp.HasValue)
                 {
                     return timestamp.Value;
                 }
-                // Fallback to file write time
-                return File.GetLastWriteTime(f);
+                // Fallback to folder creation time
+                return Directory.GetCreationTime(f);
             })
             .ToList();
 
-        var screenshotPath = files.FirstOrDefault();
-        if (string.IsNullOrEmpty(screenshotPath) || !File.Exists(screenshotPath))
+        var cacheFolderPath = folders.FirstOrDefault();
+        if (string.IsNullOrEmpty(cacheFolderPath) || !Directory.Exists(cacheFolderPath))
         {
             return (null, null);
         }
 
-        var metadata = await LoadMetadataAsync(screenshotPath, cancellationToken);
-        return (screenshotPath, metadata);
+        var metadata = await LoadMetadataAsync(cacheFolderPath, cancellationToken);
+        return (cacheFolderPath, metadata);
+    }
+    
+    /// <summary>
+    /// Gets all cached frames for a location
+    /// </summary>
+    public async Task<List<RadarFrame>> GetCachedFramesAsync(
+        string suburb, 
+        string state, 
+        CancellationToken cancellationToken = default)
+    {
+        var (cacheFolderPath, _) = await GetCachedScreenshotWithMetadataAsync(suburb, state, cancellationToken);
+        
+        if (string.IsNullOrEmpty(cacheFolderPath) || !Directory.Exists(cacheFolderPath))
+        {
+            return new List<RadarFrame>();
+        }
+        
+        var frames = new List<RadarFrame>();
+        
+        // Load frame metadata from frames.json if available
+        var framesMetadata = await LoadFramesMetadataAsync(cacheFolderPath, cancellationToken);
+        var metadataDict = framesMetadata.ToDictionary(f => f.FrameIndex, f => f.MinutesAgo);
+        
+        // Load frames from folder (frame_0.png through frame_6.png)
+        for (int i = 0; i < 7; i++)
+        {
+            var framePath = FilePathHelper.GetFrameFilePath(cacheFolderPath, i);
+            if (File.Exists(framePath))
+            {
+                // Use stored minutesAgo if available, otherwise default
+                var minutesAgo = metadataDict.ContainsKey(i) 
+                    ? metadataDict[i] 
+                    : 40 - (i * 5);
+                    
+                frames.Add(new RadarFrame
+                {
+                    FrameIndex = i,
+                    ImagePath = framePath,
+                    MinutesAgo = minutesAgo
+                });
+            }
+        }
+        
+        return frames;
+    }
+    
+    /// <summary>
+    /// Gets a specific cached frame for a location
+    /// </summary>
+    public async Task<RadarFrame?> GetCachedFrameAsync(
+        string suburb, 
+        string state, 
+        int frameIndex,
+        CancellationToken cancellationToken = default)
+    {
+        if (frameIndex < 0 || frameIndex > 6)
+        {
+            return null;
+        }
+        
+        var (cacheFolderPath, _) = await GetCachedScreenshotWithMetadataAsync(suburb, state, cancellationToken);
+        
+        if (string.IsNullOrEmpty(cacheFolderPath))
+        {
+            return null;
+        }
+        
+        var framePath = FilePathHelper.GetFrameFilePath(cacheFolderPath, frameIndex);
+        if (!File.Exists(framePath))
+        {
+            return null;
+        }
+        
+        // Load frame metadata to get accurate minutesAgo
+        var framesMetadata = await LoadFramesMetadataAsync(cacheFolderPath, cancellationToken);
+        var frameMetadata = framesMetadata.FirstOrDefault(f => f.FrameIndex == frameIndex);
+        var minutesAgo = frameMetadata != null 
+            ? frameMetadata.MinutesAgo 
+            : 40 - (frameIndex * 5);
+            
+        return new RadarFrame
+        {
+            FrameIndex = frameIndex,
+            ImagePath = framePath,
+            MinutesAgo = minutesAgo
+        };
     }
 
     /// <summary>
-    /// Saves metadata alongside a screenshot
+    /// Saves metadata in a cache folder
     /// </summary>
-    public async Task SaveMetadataAsync(string screenshotPath, LastUpdatedInfo metadata, CancellationToken cancellationToken = default)
+    public async Task SaveMetadataAsync(string cacheFolderPath, LastUpdatedInfo metadata, CancellationToken cancellationToken = default)
     {
         try
         {
-            var metadataPath = FilePathHelper.GetMetadataFilePath(screenshotPath);
+            var metadataPath = FilePathHelper.GetMetadataFilePath(cacheFolderPath);
             var json = JsonSerializer.Serialize(metadata, new JsonSerializerOptions { WriteIndented = true });
             // Use CancellationToken.None for file writes to avoid cancellation issues
-            // The screenshot is already saved, metadata save is best-effort
+            // The frames are already saved, metadata save is best-effort
             await File.WriteAllTextAsync(metadataPath, json, CancellationToken.None);
             _logger.LogDebug("Saved metadata to: {Path}", metadataPath);
         }
         catch (Exception ex)
         {
-            // Log but don't fail - screenshot is already saved
-            _logger.LogWarning(ex, "Failed to save metadata for screenshot: {Path}", screenshotPath);
+            // Log but don't fail - frames are already saved
+            _logger.LogWarning(ex, "Failed to save metadata for folder: {Path}", cacheFolderPath);
+        }
+    }
+    
+    /// <summary>
+    /// Saves frame metadata to frames.json
+    /// </summary>
+    public async Task SaveFramesMetadataAsync(string cacheFolderPath, List<RadarFrame> frames, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var framesMetadata = frames.Select(f => new FrameMetadata
+            {
+                FrameIndex = f.FrameIndex,
+                MinutesAgo = f.MinutesAgo
+            }).ToList();
+            
+            var framesPath = Path.Combine(cacheFolderPath, "frames.json");
+            var json = JsonSerializer.Serialize(framesMetadata, new JsonSerializerOptions { WriteIndented = true });
+            await File.WriteAllTextAsync(framesPath, json, CancellationToken.None);
+            _logger.LogDebug("Saved frames metadata to: {Path}", framesPath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to save frames metadata for folder: {Path}", cacheFolderPath);
+        }
+    }
+    
+    /// <summary>
+    /// Loads frame metadata from frames.json
+    /// </summary>
+    private async Task<List<FrameMetadata>> LoadFramesMetadataAsync(string cacheFolderPath, CancellationToken cancellationToken = default)
+    {
+        var framesPath = Path.Combine(cacheFolderPath, "frames.json");
+        if (!File.Exists(framesPath))
+        {
+            return new List<FrameMetadata>();
+        }
+
+        try
+        {
+            var json = await File.ReadAllTextAsync(framesPath, cancellationToken);
+            var framesMetadata = JsonSerializer.Deserialize<List<FrameMetadata>>(json);
+            return framesMetadata ?? new List<FrameMetadata>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load frames metadata from: {Path}", framesPath);
+            return new List<FrameMetadata>();
         }
     }
 
     /// <summary>
-    /// Loads metadata for a screenshot
+    /// Loads metadata from a cache folder
     /// </summary>
-    public async Task<LastUpdatedInfo?> LoadMetadataAsync(string screenshotPath, CancellationToken cancellationToken = default)
+    private async Task<LastUpdatedInfo?> LoadMetadataAsync(string cacheFolderPath, CancellationToken cancellationToken = default)
     {
-        var metadataPath = FilePathHelper.GetMetadataFilePath(screenshotPath);
+        var metadataPath = FilePathHelper.GetMetadataFilePath(cacheFolderPath);
         if (!File.Exists(metadataPath))
         {
             return null;
@@ -117,59 +252,47 @@ public class CacheService : ICacheService
     }
 
     /// <summary>
-    /// Gets the path to the cached screenshot for a location (simple version, ordered by creation time)
+    /// Gets the path to the cached screenshot for a location (returns first frame path for backward compatibility)
     /// </summary>
-    public Task<string> GetCachedScreenshotPathAsync(string suburb, string state, CancellationToken cancellationToken = default)
+    public async Task<string> GetCachedScreenshotPathAsync(string suburb, string state, CancellationToken cancellationToken = default)
     {
-        var pattern = FilePathHelper.GetCacheFilePattern(suburb, state);
-        var files = Directory.GetFiles(_cacheDirectory, pattern)
-            .OrderByDescending(f => File.GetCreationTime(f))
-            .ToList();
-
-        return Task.FromResult(files.FirstOrDefault() ?? string.Empty);
+        var frames = await GetCachedFramesAsync(suburb, state, cancellationToken);
+        return frames.FirstOrDefault()?.ImagePath ?? string.Empty;
     }
 
     /// <summary>
-    /// Deletes all cached files for a location
+    /// Deletes all cached folders for a location
     /// </summary>
     public Task<bool> DeleteCachedLocationAsync(string suburb, string state, CancellationToken cancellationToken = default)
     {
-        var pattern = FilePathHelper.GetCacheFilePattern(suburb, state);
+        var pattern = FilePathHelper.GetCacheFolderPattern(suburb, state);
         var deleted = false;
 
         try
         {
-            // Delete all PNG files for this location
-            var pngFiles = Directory.GetFiles(_cacheDirectory, pattern);
-            foreach (var pngFile in pngFiles)
+            // Delete all folders matching the pattern
+            var folders = Directory.GetDirectories(_cacheDirectory, pattern);
+            foreach (var folder in folders)
             {
                 try
                 {
-                    File.Delete(pngFile);
-                    _logger.LogInformation("Deleted cached screenshot: {File}", pngFile);
+                    Directory.Delete(folder, recursive: true);
+                    _logger.LogInformation("Deleted cached folder: {Folder}", folder);
                     deleted = true;
-
-                    // Also delete associated metadata JSON file
-                    var metadataFile = FilePathHelper.GetMetadataFilePath(pngFile);
-                    if (File.Exists(metadataFile))
-                    {
-                        File.Delete(metadataFile);
-                        _logger.LogInformation("Deleted metadata file: {File}", metadataFile);
-                    }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to delete file: {File}", pngFile);
+                    _logger.LogWarning(ex, "Failed to delete folder: {Folder}", folder);
                 }
             }
 
             if (deleted)
             {
-                _logger.LogInformation("Deleted all cached files for location: {Suburb}, {State}", suburb, state);
+                _logger.LogInformation("Deleted all cached folders for location: {Suburb}, {State}", suburb, state);
             }
             else
             {
-                _logger.LogDebug("No cached files found to delete for location: {Suburb}, {State}", suburb, state);
+                _logger.LogDebug("No cached folders found to delete for location: {Suburb}, {State}", suburb, state);
             }
         }
         catch (Exception ex)

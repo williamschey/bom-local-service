@@ -30,24 +30,48 @@ public class BomRadarService : IBomRadarService, IDisposable
         _cacheExpirationMinutes = configuration.GetValue<double>("CacheExpirationMinutes", 15.5);
     }
 
-    public async Task<RadarScreenshotResponse?> GetCachedScreenshotAsync(string suburb, string state, CancellationToken cancellationToken = default)
+    public async Task<RadarResponse?> GetCachedRadarAsync(string suburb, string state, CancellationToken cancellationToken = default)
     {
-        var (cachedPath, cachedMetadata) = await _cacheService.GetCachedScreenshotWithMetadataAsync(suburb, state, cancellationToken);
+        var (cacheFolderPath, cachedMetadata) = await _cacheService.GetCachedScreenshotWithMetadataAsync(suburb, state, cancellationToken);
         
-        if (string.IsNullOrEmpty(cachedPath) || !File.Exists(cachedPath))
+        if (string.IsNullOrEmpty(cacheFolderPath) || !Directory.Exists(cacheFolderPath))
         {
             return null;
         }
 
-        return ResponseBuilder.CreateRadarScreenshotResponse(cachedPath, cachedMetadata);
+        var frames = await _cacheService.GetCachedFramesAsync(suburb, state, cancellationToken);
+        if (frames == null || frames.Count == 0)
+        {
+            return null;
+        }
+
+        return ResponseBuilder.CreateRadarResponse(cacheFolderPath, frames, cachedMetadata, suburb, state);
+    }
+    
+    public async Task<List<RadarFrame>?> GetCachedFramesAsync(string suburb, string state, CancellationToken cancellationToken = default)
+    {
+        var frames = await _cacheService.GetCachedFramesAsync(suburb, state, cancellationToken);
+        
+        // Generate URLs for frames
+        foreach (var frame in frames)
+        {
+            frame.ImageUrl = $"/api/radar/{Uri.EscapeDataString(suburb)}/{Uri.EscapeDataString(state)}/frame/{frame.FrameIndex}";
+        }
+        
+        return frames.Count > 0 ? frames : null;
+    }
+    
+    public async Task<RadarFrame?> GetCachedFrameAsync(string suburb, string state, int frameIndex, CancellationToken cancellationToken = default)
+    {
+        return await _cacheService.GetCachedFrameAsync(suburb, state, frameIndex, cancellationToken);
     }
 
     public async Task<CacheUpdateStatus> TriggerCacheUpdateAsync(string suburb, string state, CancellationToken cancellationToken = default)
     {
         var status = new CacheUpdateStatus();
-        var (cachedPath, cachedMetadata) = await _cacheService.GetCachedScreenshotWithMetadataAsync(suburb, state, cancellationToken);
+        var (cacheFolderPath, cachedMetadata) = await _cacheService.GetCachedScreenshotWithMetadataAsync(suburb, state, cancellationToken);
         
-        status.CacheExists = !string.IsNullOrEmpty(cachedPath) && File.Exists(cachedPath);
+        status.CacheExists = !string.IsNullOrEmpty(cacheFolderPath) && Directory.Exists(cacheFolderPath);
         
         if (cachedMetadata != null)
         {
@@ -98,58 +122,61 @@ public class BomRadarService : IBomRadarService, IDisposable
         return status;
     }
 
-    private async Task<RadarScreenshotResponse> FetchAndCacheScreenshotAsync(string suburb, string state, CancellationToken cancellationToken = default)
+    private async Task<RadarResponse> FetchAndCacheScreenshotAsync(string suburb, string state, CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Getting radar screenshot for suburb: {Suburb}, state: {State}", suburb, state);
 
         // Check cache FIRST, before acquiring semaphore (cached requests shouldn't block)
-        var (cachedPath, cachedMetadata) = await _cacheService.GetCachedScreenshotWithMetadataAsync(suburb, state, cancellationToken);
+        var (cacheFolderPath, cachedMetadata) = await _cacheService.GetCachedScreenshotWithMetadataAsync(suburb, state, cancellationToken);
         
-        if (!string.IsNullOrEmpty(cachedPath) && File.Exists(cachedPath) && cachedMetadata != null)
+        if (!string.IsNullOrEmpty(cacheFolderPath) && Directory.Exists(cacheFolderPath) && cachedMetadata != null)
         {
             var isValid = _cacheService.IsCacheValid(cachedMetadata);
             if (isValid)
             {
-                _logger.LogInformation("Returning valid cached screenshot for {Suburb}, {State} (no semaphore needed)", suburb, state);
-                return ResponseBuilder.CreateRadarScreenshotResponse(cachedPath, cachedMetadata);
+                _logger.LogInformation("Returning valid cached screenshots for {Suburb}, {State} (no semaphore needed)", suburb, state);
+                var frames = await _cacheService.GetCachedFramesAsync(suburb, state, cancellationToken);
+                return ResponseBuilder.CreateRadarResponse(cacheFolderPath, frames, cachedMetadata, suburb, state);
             }
             else
             {
                 var nextUpdate = cachedMetadata.ObservationTime.AddMinutes(_cacheExpirationMinutes);
                 var timeUntilExpiry = nextUpdate - DateTime.UtcNow;
-                _logger.LogInformation("Cached screenshot exists but is stale (observation time: {ObservationTime}, expired {TimeAgo} ago), fetching new one", 
+                _logger.LogInformation("Cached screenshots exist but are stale (observation time: {ObservationTime}, expired {TimeAgo} ago), fetching new ones", 
                     cachedMetadata.ObservationTime, -timeUntilExpiry);
             }
         }
-        else if (!string.IsNullOrEmpty(cachedPath) && File.Exists(cachedPath))
+        else if (!string.IsNullOrEmpty(cacheFolderPath) && Directory.Exists(cacheFolderPath))
         {
-            _logger.LogWarning("Cached screenshot found but no metadata file exists, fetching new one");
+            _logger.LogWarning("Cached folder found but no metadata file exists, fetching new screenshots");
         }
         else
         {
-            _logger.LogInformation("No cached screenshot found for {Suburb}, {State}, fetching new one", suburb, state);
+            _logger.LogInformation("No cached screenshots found for {Suburb}, {State}, fetching new ones", suburb, state);
         }
 
         // Only acquire semaphore if we need to fetch new screenshot
         var semaphore = _browserService.GetSemaphore();
         await semaphore.WaitAsync(cancellationToken);
         
-        // Generate request ID for debugging
-        var requestId = $"{DateTime.UtcNow:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}";
-        var debugFolder = _debugService.CreateRequestFolder(requestId);
-        
         IBrowserContext? context = null;
+        string? debugFolder = null;
+        string? requestId = null;
         try
         {
             // Double-check cache after acquiring semaphore (another request might have just created it)
-            var (recheckCachedPath, recheckCachedMetadata) = await _cacheService.GetCachedScreenshotWithMetadataAsync(suburb, state, cancellationToken);
-            if (!string.IsNullOrEmpty(recheckCachedPath) && File.Exists(recheckCachedPath) && recheckCachedMetadata != null && _cacheService.IsCacheValid(recheckCachedMetadata))
+            var (recheckCacheFolderPath, recheckCachedMetadata) = await _cacheService.GetCachedScreenshotWithMetadataAsync(suburb, state, cancellationToken);
+            if (!string.IsNullOrEmpty(recheckCacheFolderPath) && Directory.Exists(recheckCacheFolderPath) && recheckCachedMetadata != null && _cacheService.IsCacheValid(recheckCachedMetadata))
             {
-                _logger.LogInformation("Cache became valid while waiting for semaphore, returning cached screenshot");
-                return ResponseBuilder.CreateRadarScreenshotResponse(recheckCachedPath, recheckCachedMetadata);
+                _logger.LogInformation("Cache became valid while waiting for semaphore, returning cached screenshots");
+                var recheckFrames = await _cacheService.GetCachedFramesAsync(suburb, state, cancellationToken);
+                return ResponseBuilder.CreateRadarResponse(recheckCacheFolderPath, recheckFrames, recheckCachedMetadata, suburb, state);
             }
 
-            // Need to capture new screenshot
+            // Need to capture new screenshot - create debug folder only now
+            requestId = $"{DateTime.UtcNow:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}";
+            debugFolder = _debugService.CreateRequestFolder(requestId);
+            
             context = await _browserService.CreateContextAsync();
             var (page, consoleMessages, networkRequests) = await _browserService.CreatePageWithDebugAsync(context, requestId);
 
@@ -176,11 +203,29 @@ public class BomRadarService : IBomRadarService, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting radar screenshot for suburb: {Suburb}, state: {State} (RequestId: {RequestId})", suburb, state, requestId);
+            _logger.LogError(ex, "Error getting radar screenshot for suburb: {Suburb}, state: {State} (RequestId: {RequestId})", suburb, state, requestId ?? "unknown");
             throw;
         }
         finally
         {
+            // Clean up empty debug folder if we returned early without scraping
+            if (!string.IsNullOrEmpty(debugFolder) && Directory.Exists(debugFolder))
+            {
+                try
+                {
+                    var files = Directory.GetFiles(debugFolder, "*", SearchOption.AllDirectories);
+                    if (files.Length == 0)
+                    {
+                        Directory.Delete(debugFolder, recursive: true);
+                        _logger.LogDebug("Removed empty debug folder: {DebugFolder}", debugFolder);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to clean up empty debug folder: {DebugFolder}", debugFolder);
+                }
+            }
+            
             semaphore.Release();
         }
     }

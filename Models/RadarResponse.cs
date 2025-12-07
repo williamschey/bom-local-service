@@ -1,18 +1,16 @@
 namespace BomLocalService.Models;
 
 /// <summary>
-/// Response model containing the radar screenshot image path and associated metadata.
+/// Response model containing all radar screenshot frames and associated metadata.
 /// This is the primary response returned when requesting a radar screenshot for a location.
 /// </summary>
-public class RadarScreenshotResponse
+public class RadarResponse
 {
     /// <summary>
-    /// The full file system path to the cached PNG screenshot image file.
-    /// This is the path on the server where the screenshot is stored.
-    /// Format: "{CacheDirectory}/{Suburb}_{State}_{Timestamp}.png"
-    /// Example: "/app/cache/Pomona_QLD_20251207_000906.png"
+    /// List of all captured frames (typically 7 frames: 0-6).
+    /// Frame 0 is oldest (40 minutes ago), Frame 6 is newest (10 minutes ago).
     /// </summary>
-    public string ImagePath { get; set; } = string.Empty;
+    public List<RadarFrame> Frames { get; set; } = new();
 
     /// <summary>
     /// The UTC timestamp when the screenshot file was last written/modified on disk.

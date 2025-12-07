@@ -174,16 +174,18 @@ public class CacheManagementService : BackgroundService
         
         try
         {
-            // Get locations from existing cache files
+            // Get locations from existing cache folders
             var cacheDirectory = FilePathHelper.GetCacheDirectory(_configuration);
             if (Directory.Exists(cacheDirectory))
             {
-                var pngFiles = Directory.GetFiles(cacheDirectory, "*.png", SearchOption.TopDirectoryOnly);
+                // Get all folders (not files)
+                var folders = Directory.GetDirectories(cacheDirectory);
                 var seen = new HashSet<string>();
                 
-                foreach (var file in pngFiles)
+                foreach (var folder in folders)
                 {
-                    var location = LocationHelper.ParseLocationFromFilename(file);
+                    var folderName = Path.GetFileName(folder);
+                    var location = LocationHelper.ParseLocationFromFilename(folderName);
                     if (location.HasValue)
                     {
                         var locationKey = LocationHelper.GetLocationKey(location.Value.suburb, location.Value.state);

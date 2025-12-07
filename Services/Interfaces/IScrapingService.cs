@@ -22,7 +22,7 @@ public interface IScrapingService
     /// <param name="networkRequests">List to capture network request information (for debugging)</param>
     /// <param name="cancellationToken">Cancellation token to cancel the operation</param>
     /// <returns>Radar screenshot response with image path and metadata</returns>
-    Task<RadarScreenshotResponse> ScrapeRadarScreenshotAsync(
+    Task<RadarResponse> ScrapeRadarScreenshotAsync(
         string suburb,
         string state,
         string debugFolder,

@@ -9,14 +9,14 @@ namespace BomLocalService.Services.Interfaces;
 public interface IBomRadarService
 {
     /// <summary>
-    /// Gets a cached radar screenshot for a location.
-    /// Returns the screenshot response if available in cache, otherwise returns null.
+    /// Gets cached radar data for a location.
+    /// Returns the radar response with all frames if available in cache, otherwise returns null.
     /// </summary>
     /// <param name="suburb">The suburb name (e.g., "Pomona", "Brisbane")</param>
     /// <param name="state">The Australian state abbreviation (e.g., "QLD", "NSW", "VIC")</param>
     /// <param name="cancellationToken">Cancellation token to cancel the operation</param>
-    /// <returns>Radar screenshot response with image path and metadata, or null if not cached</returns>
-    Task<RadarScreenshotResponse?> GetCachedScreenshotAsync(string suburb, string state, CancellationToken cancellationToken = default);
+    /// <returns>Radar response with frames and metadata, or null if not cached</returns>
+    Task<RadarResponse?> GetCachedRadarAsync(string suburb, string state, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Triggers a cache update for a location.
@@ -49,12 +49,31 @@ public interface IBomRadarService
     Task<string> GetCachedScreenshotPathAsync(string suburb, string state, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Deletes all cached files (screenshot and metadata) for a location.
+    /// Deletes all cached folders (containing frames and metadata) for a location.
     /// </summary>
     /// <param name="suburb">The suburb name (e.g., "Pomona", "Brisbane")</param>
     /// <param name="state">The Australian state abbreviation (e.g., "QLD", "NSW", "VIC")</param>
     /// <param name="cancellationToken">Cancellation token to cancel the operation</param>
-    /// <returns>True if files were deleted, false if no cached files existed</returns>
+    /// <returns>True if folders were deleted, false if no cached folders existed</returns>
     Task<bool> DeleteCachedLocationAsync(string suburb, string state, CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// Gets all cached frames for a location.
+    /// </summary>
+    /// <param name="suburb">The suburb name (e.g., "Pomona", "Brisbane")</param>
+    /// <param name="state">The Australian state abbreviation (e.g., "QLD", "NSW", "VIC")</param>
+    /// <param name="cancellationToken">Cancellation token to cancel the operation</param>
+    /// <returns>List of cached frames with URLs, or null if no frames exist</returns>
+    Task<List<RadarFrame>?> GetCachedFramesAsync(string suburb, string state, CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// Gets a specific cached frame for a location.
+    /// </summary>
+    /// <param name="suburb">The suburb name (e.g., "Pomona", "Brisbane")</param>
+    /// <param name="state">The Australian state abbreviation (e.g., "QLD", "NSW", "VIC")</param>
+    /// <param name="frameIndex">Frame index (0-6)</param>
+    /// <param name="cancellationToken">Cancellation token to cancel the operation</param>
+    /// <returns>The cached frame, or null if not found</returns>
+    Task<RadarFrame?> GetCachedFrameAsync(string suburb, string state, int frameIndex, CancellationToken cancellationToken = default);
 }
 
