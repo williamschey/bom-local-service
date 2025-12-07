@@ -47,6 +47,15 @@ if (enableHttpsRedirection)
 // No authorization required - service is designed to run behind a reverse proxy if auth is needed
 app.MapControllers();
 
+// Cleanup incomplete cache folders from previous crashes/restarts before starting services
+var cacheService = app.Services.GetRequiredService<ICacheService>();
+var deletedCount = cacheService.CleanupIncompleteCacheFolders();
+if (deletedCount > 0)
+{
+    var logger = app.Services.GetRequiredService<ILogger<Program>>();
+    logger.LogInformation("Startup recovery: cleaned up {Count} incomplete cache folder(s) from previous session", deletedCount);
+}
+
 // Cleanup on shutdown
 app.Lifetime.ApplicationStopped.Register(() =>
 {

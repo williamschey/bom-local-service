@@ -88,5 +88,14 @@ public static class FilePathHelper
     {
         return Path.Combine(cacheFolderPath, ".writing");
     }
+
+    /// <summary>
+    /// Gets the frames metadata file path within a cache folder.
+    /// Format: "{CacheFolderPath}/frames.json"
+    /// </summary>
+    public static string GetFramesMetadataFilePath(string cacheFolderPath)
+    {
+        return Path.Combine(cacheFolderPath, "frames.json");
+    }
 }
 

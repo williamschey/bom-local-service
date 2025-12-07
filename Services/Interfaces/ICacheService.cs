@@ -99,5 +99,13 @@ public interface ICacheService
     /// </summary>
     /// <returns>The full path to the cache directory</returns>
     string GetCacheDirectory();
+    
+    /// <summary>
+    /// Cleans up incomplete cache folders (e.g., from a previous crash or restart).
+    /// Scans all cache folders and deletes any that are incomplete (missing frames, metadata, etc.).
+    /// This should be called on application startup to recover from interrupted cache updates.
+    /// </summary>
+    /// <returns>The number of incomplete folders that were deleted</returns>
+    int CleanupIncompleteCacheFolders();
 }
 

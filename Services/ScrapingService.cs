@@ -61,12 +61,12 @@ public class ScrapingService : IScrapingService
         {
             X = cropSection.GetValue<int>("X", 0),
             Y = cropSection.GetValue<int>("Y", 0),
-            Width = cropSection.GetValue<int?>("Width"),
+            RightOffset = cropSection.GetValue<int>("RightOffset", 0),
             Height = cropSection.GetValue<int?>("Height")
         };
         
-        _logger.LogInformation("Screenshot crop config: X={X}, Y={Y}, Width={Width}, Height={Height}",
-            _cropConfig.X, _cropConfig.Y, _cropConfig.Width, _cropConfig.Height);
+        _logger.LogInformation("Screenshot crop config: X={X}, Y={Y}, RightOffset={RightOffset}, Height={Height}",
+            _cropConfig.X, _cropConfig.Y, _cropConfig.RightOffset, _cropConfig.Height);
     }
 
     /// <summary>
@@ -561,11 +561,11 @@ public class ScrapingService : IScrapingService
         var x = containerClip.X + _cropConfig.X;
         var y = containerClip.Y + _cropConfig.Y;
         
-        // Calculate width (use configured or remaining width from X to right edge)
-        var width = _cropConfig.Width ?? (containerClip.Width - _cropConfig.X);
+        // Calculate width: container width minus left offset (X) minus right offset
+        var width = Math.Max(0, containerClip.Width - _cropConfig.X - _cropConfig.RightOffset);
         
         // Calculate height (use configured or remaining height)
-        var height = _cropConfig.Height ?? (containerClip.Height - _cropConfig.Y);
+        var height = _cropConfig.Height ?? Math.Max(0, containerClip.Height - _cropConfig.Y);
         
         // Validate bounds
         if (x < containerClip.X || y < containerClip.Y)
@@ -695,7 +695,36 @@ public class ScrapingService : IScrapingService
     /// </summary>
     private async Task CaptureMapScreenshotAsync(IPage page, ILocator mapContainer, string outputPath, Clip containerClip)
     {
-        var cropArea = CalculateCropArea(containerClip);
+        Clip cropArea;
+        try
+        {
+            cropArea = CalculateCropArea(containerClip);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to calculate crop area, using full container bounds. Container: X={X}, Y={Y}, Width={Width}, Height={Height}", 
+                containerClip.X, containerClip.Y, containerClip.Width, containerClip.Height);
+            // Fallback to full container if crop calculation fails
+            cropArea = containerClip;
+        }
+        
+        // Validate crop area is within page bounds before attempting screenshot
+        var viewportSize = page.ViewportSize;
+        if (viewportSize == null || cropArea.X < 0 || cropArea.Y < 0 || 
+            cropArea.X + cropArea.Width > viewportSize.Width || 
+            cropArea.Y + cropArea.Height > viewportSize.Height)
+        {
+            _logger.LogWarning("Crop area is outside viewport bounds, using full container. Crop: X={X}, Y={Y}, Width={Width}, Height={Height}, Viewport: {ViewportWidth}x{ViewportHeight}", 
+                cropArea.X, cropArea.Y, cropArea.Width, cropArea.Height, viewportSize?.Width ?? 0, viewportSize?.Height ?? 0);
+            cropArea = containerClip;
+        }
+        
+        // Final validation - ensure dimensions are positive
+        if (cropArea.Width <= 0 || cropArea.Height <= 0)
+        {
+            _logger.LogError("Invalid crop dimensions: {Width}x{Height}, using full container", cropArea.Width, cropArea.Height);
+            cropArea = containerClip;
+        }
         
         await page.ScreenshotAsync(new PageScreenshotOptions
         {

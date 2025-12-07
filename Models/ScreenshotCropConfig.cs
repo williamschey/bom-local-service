@@ -19,10 +19,11 @@ public class ScreenshotCropConfig
     public int Y { get; set; } = 0;
 
     /// <summary>
-    /// Width of the crop area in pixels.
-    /// If null, uses the remaining container width from X offset to the right edge.
+    /// Right offset in pixels from the right edge of the map container.
+    /// How much to cut off from the right side.
+    /// Default: 0 (no cut from right edge).
     /// </summary>
-    public int? Width { get; set; }
+    public int RightOffset { get; set; } = 0;
 
     /// <summary>
     /// Height of the crop area in pixels.

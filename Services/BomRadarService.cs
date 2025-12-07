@@ -166,7 +166,7 @@ public class BomRadarService : IBomRadarService, IDisposable
         // If there's an active update in progress, return existing cache (if available) with IsUpdating=true
         if (isUpdating)
         {
-            if (!string.IsNullOrEmpty(cacheFolderPath) && Directory.Exists(cacheFolderPath))
+            if (!string.IsNullOrEmpty(cacheFolderPath) && Directory.Exists(cacheFolderPath) && CacheHelper.IsCacheFolderComplete(cacheFolderPath))
             {
                 _logger.LogInformation("Cache update in progress for {Suburb}, {State}, returning existing cached data", suburb, state);
                 var frames = await _cacheService.GetCachedFramesAsync(suburb, state, cancellationToken);
@@ -181,7 +181,7 @@ public class BomRadarService : IBomRadarService, IDisposable
             }
         }
         
-        if (!string.IsNullOrEmpty(cacheFolderPath) && Directory.Exists(cacheFolderPath) && cachedMetadata != null)
+        if (!string.IsNullOrEmpty(cacheFolderPath) && Directory.Exists(cacheFolderPath) && cachedMetadata != null && CacheHelper.IsCacheFolderComplete(cacheFolderPath))
         {
             var isValid = _cacheService.IsCacheValid(cachedMetadata);
             if (isValid)
@@ -308,6 +308,26 @@ public class BomRadarService : IBomRadarService, IDisposable
         }
         finally
         {
+            // Always remove from active tracking, even on error
+            _activeCacheFolders.TryRemove(locationKey, out _);
+            
+            // Clean up incomplete cache folder if error occurred
+            if (!string.IsNullOrEmpty(newCacheFolderPath) && Directory.Exists(newCacheFolderPath))
+            {
+                try
+                {
+                    if (!CacheHelper.IsCacheFolderComplete(newCacheFolderPath))
+                    {
+                        Directory.Delete(newCacheFolderPath, recursive: true);
+                        _logger.LogWarning("Cleaned up incomplete cache folder due to error: {Folder}", newCacheFolderPath);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to clean up incomplete cache folder: {Folder}", newCacheFolderPath);
+                }
+            }
+            
             // Clean up empty debug folder if we returned early without scraping
             if (!string.IsNullOrEmpty(debugFolder) && Directory.Exists(debugFolder))
             {

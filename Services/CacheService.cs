@@ -61,30 +61,11 @@ public class CacheService : ICacheService
                 continue;
             }
             
-            // Check if folder is complete: must have all 7 frames and metadata.json
-            var hasAllFrames = true;
-            for (int i = 0; i < 7; i++)
-            {
-                var framePath = FilePathHelper.GetFrameFilePath(folder, i);
-                if (!File.Exists(framePath))
-                {
-                    hasAllFrames = false;
-                    break;
-                }
-            }
-            
-            if (!hasAllFrames)
+            // Check if folder is complete: must have all 7 frames, metadata.json, and frames.json
+            if (!CacheHelper.IsCacheFolderComplete(folder))
             {
                 _logger.LogDebug("Skipping incomplete cache folder: {Folder}", folder);
                 continue; // Skip incomplete folders (currently being written to)
-            }
-            
-            // Check if metadata exists (indicates folder is complete)
-            var metadataPath = FilePathHelper.GetMetadataFilePath(folder);
-            if (!File.Exists(metadataPath))
-            {
-                _logger.LogDebug("Skipping cache folder without metadata: {Folder}", folder);
-                continue; // Skip folders without metadata
             }
             
             // This folder is complete
@@ -347,5 +328,59 @@ public class CacheService : ICacheService
     /// Gets the cache directory path
     /// </summary>
     public string GetCacheDirectory() => _cacheDirectory;
+    
+    /// <summary>
+    /// Cleans up incomplete cache folders from previous crashes or restarts
+    /// </summary>
+    public int CleanupIncompleteCacheFolders()
+    {
+        if (!Directory.Exists(_cacheDirectory))
+        {
+            return 0;
+        }
+        
+        var deletedCount = 0;
+        
+        try
+        {
+            // Get all cache folders (they match the pattern LocationKey_Timestamp)
+            var folders = Directory.GetDirectories(_cacheDirectory)
+                .Where(f => !Path.GetFileName(f).StartsWith("debug", StringComparison.OrdinalIgnoreCase)) // Exclude debug folder
+                .ToList();
+            
+            foreach (var folder in folders)
+            {
+                try
+                {
+                    // Check if folder is incomplete
+                    if (!CacheHelper.IsCacheFolderComplete(folder))
+                    {
+                        _logger.LogInformation("Found incomplete cache folder from previous session, deleting: {Folder}", Path.GetFileName(folder));
+                        Directory.Delete(folder, recursive: true);
+                        deletedCount++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to check or delete incomplete cache folder: {Folder}", folder);
+                }
+            }
+            
+            if (deletedCount > 0)
+            {
+                _logger.LogInformation("Startup cleanup completed: deleted {Count} incomplete cache folder(s)", deletedCount);
+            }
+            else
+            {
+                _logger.LogDebug("Startup cleanup: no incomplete cache folders found");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during startup cleanup of incomplete cache folders");
+        }
+        
+        return deletedCount;
+    }
 }
 
