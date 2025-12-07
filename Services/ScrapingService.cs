@@ -414,12 +414,18 @@ public class ScrapingService : IScrapingService
 
             await _debugService.SaveStepDebugAsync(debugFolder, 10, "scrubber_at_position_0", page, consoleMessages, networkRequests, cancellationToken);
 
-            // Step 11: Extract metadata and frame information
+            // Step 11: Wait for frame 0 tiles to fully load before calculating bounding box
+            // This ensures the map viewport is stable and prevents jiggle between frames
+            _logger.LogInformation("Waiting for frame 0 tiles to fully render");
+            await page.WaitForTimeoutAsync(_tileRenderWaitMs);
+
+            // Step 12: Extract metadata and frame information
             _logger.LogInformation("Extracting metadata and frame information");
             var lastUpdatedInfo = await _timeParsingService.ExtractLastUpdatedInfoAsync(page);
             var frameInfo = await ExtractFrameInfoAsync(page);
 
-            // Step 12: Get map container and calculate bounding box once
+            // Step 13: Get map container and calculate bounding box once
+            // Calculate after frame 0 tiles are loaded to ensure consistent viewport
             _logger.LogInformation("Preparing map container for screenshot");
             var mapContainer = page.Locator(".esri-view-surface").First;
             await mapContainer.WaitForAsync(new LocatorWaitForOptions { Timeout = 10000 });
@@ -445,11 +451,11 @@ public class ScrapingService : IScrapingService
                 Height = boundingBox.Height
             };
 
-            // Step 13: Use provided cache folder (already created by BomRadarService)
+            // Step 14: Use provided cache folder (already created by BomRadarService)
             Directory.CreateDirectory(cacheFolderPath);
             _logger.LogInformation("Using cache folder: {Path}", cacheFolderPath);
 
-            // Step 14-20: Capture all 7 frames
+            // Step 15-21: Capture all 7 frames
             var frames = new List<RadarFrame>();
             var stepForwardButton = page.Locator("button[data-testid='bom-scrub-utils__right__step-forward']").First;
 
@@ -485,7 +491,7 @@ public class ScrapingService : IScrapingService
                     frameIndex, framePath, minutesAgo.Value);
                 
                 // Save debug screenshot BEFORE clicking step forward
-                await _debugService.SaveStepDebugAsync(debugFolder, 14 + frameIndex, $"frame_{frameIndex}_captured", page, consoleMessages, networkRequests, cancellationToken);
+                await _debugService.SaveStepDebugAsync(debugFolder, 15 + frameIndex, $"frame_{frameIndex}_captured", page, consoleMessages, networkRequests, cancellationToken);
                 
                 // If not the last frame, click step forward to prepare for next frame
                 if (frameIndex < 6)
@@ -521,26 +527,11 @@ public class ScrapingService : IScrapingService
 
             _logger.LogInformation("All 7 frames captured successfully");
 
-            // Step 21: Save metadata and frame information
+            // Step 22: Save metadata and frame information
             await _cacheService.SaveMetadataAsync(cacheFolderPath, lastUpdatedInfo, cancellationToken);
             await _cacheService.SaveFramesMetadataAsync(cacheFolderPath, frames, cancellationToken);
-            
-            // Remove lock file to indicate cache folder is complete
-            var lockFilePath = FilePathHelper.GetCacheLockFilePath(cacheFolderPath);
-            try
-            {
-                if (File.Exists(lockFilePath))
-                {
-                    File.Delete(lockFilePath);
-                    _logger.LogDebug("Removed cache lock file: {Path}", lockFilePath);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to remove cache lock file: {Path}", lockFilePath);
-            }
 
-            // Step 22: Return response with all frames
+            // Step 23: Return response with all frames
             // Note: ScrapingService doesn't have access to cache management check interval
             // Default to 5 minutes (standard check interval)
             return ResponseBuilder.CreateRadarResponse(cacheFolderPath, frames, lastUpdatedInfo, suburb, state, cacheIsValid: true, cacheExpiresAt: null, isUpdating: false, cacheManagementCheckIntervalMinutes: 5);
@@ -728,10 +719,23 @@ public class ScrapingService : IScrapingService
             cropArea = containerClip;
         }
         
+        // Wait for fonts to be loaded to prevent text rendering artifacts
+        try
+        {
+            await page.WaitForLoadStateAsync(LoadState.NetworkIdle, new PageWaitForLoadStateOptions { Timeout = 5000 });
+        }
+        catch
+        {
+            // Continue if network idle timeout - fonts may already be loaded
+        }
+        
+        // Take high-quality screenshot with explicit PNG format and disabled animations
         await page.ScreenshotAsync(new PageScreenshotOptions
         {
             Path = outputPath,
-            Clip = cropArea
+            Clip = cropArea,
+            Type = ScreenshotType.Png, // Explicit PNG for lossless quality
+            Animations = ScreenshotAnimations.Disabled // Disable animations to prevent artifacts
         });
         
         _logger.LogDebug("Screenshot saved: {Path} (crop: {X},{Y} {Width}x{Height})", 

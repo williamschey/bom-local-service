@@ -95,6 +95,7 @@ public class BrowserService : IBrowserService
         return await browser.NewContextAsync(new BrowserNewContextOptions
         {
             ViewportSize = new ViewportSize { Width = 1920, Height = 1080 },
+            DeviceScaleFactor = 2.0f, // 2x scale for higher resolution screenshots (better text quality)
             UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             Locale = "en-AU",
             TimezoneId = _timezone,

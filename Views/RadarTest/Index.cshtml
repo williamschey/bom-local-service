@@ -80,13 +80,18 @@
             overflow: hidden;
             margin-bottom: 20px;
             aspect-ratio: 16/9;
+            min-height: 400px; /* Prevent layout shift */
         }
         
         .radar-image {
+            position: absolute;
+            top: 0;
+            left: 0;
             width: 100%;
             height: 100%;
             object-fit: contain;
             display: block;
+            image-rendering: crisp-edges; /* Prevent blurry scaling */
         }
         
         .loading {
@@ -732,6 +737,9 @@
                 </button>
             `).join('');
             
+            // Preload all frame images to prevent jiggle when switching
+            preloadImages(frames);
+            
             // Show first frame
             if (frames.length > 0) {
                 showFrame(0);
@@ -745,6 +753,14 @@
             updateRelativeTimes();
         }
         
+        // Preload all frame images to prevent jiggle
+        function preloadImages(frames) {
+            frames.forEach(frame => {
+                const img = new Image();
+                img.src = frame.imageUrl;
+            });
+        }
+        
         // Show specific frame
         function showFrame(index) {
             if (index < 0 || index >= frames.length) return;
@@ -756,13 +772,21 @@
             const imgEl = document.getElementById('radar-image');
             const loadingEl = document.getElementById('loading');
             
-            imgEl.onload = () => {
+            // Check if image is already loaded (from preload)
+            const preloadedImg = new Image();
+            preloadedImg.onload = () => {
+                // Image is ready, switch immediately to prevent jiggle
+                imgEl.src = frame.imageUrl;
+                imgEl.alt = `Radar frame ${frame.frameIndex} (${frame.minutesAgo} minutes ago)`;
                 loadingEl.style.display = 'none';
                 imgEl.style.display = 'block';
             };
-            
-            imgEl.src = frame.imageUrl;
-            imgEl.alt = `Radar frame ${frame.frameIndex} (${frame.minutesAgo} minutes ago)`;
+            preloadedImg.onerror = () => {
+                // Fallback if preload failed
+                imgEl.src = frame.imageUrl;
+                imgEl.alt = `Radar frame ${frame.frameIndex} (${frame.minutesAgo} minutes ago)`;
+            };
+            preloadedImg.src = frame.imageUrl;
             
             // Update frame info
             document.getElementById('frame-info').textContent = 
