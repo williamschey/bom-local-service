@@ -41,6 +41,11 @@ export DISPLAY=:99\n\
 exec dotnet BomLocalService.dll' > /app/start.sh && \
     chmod +x /app/start.sh
 
+# OCI labels for GitHub Container Registry metadata
+LABEL org.opencontainers.image.source="https://github.com/alexhopeoconnor/bom-local-service"
+LABEL org.opencontainers.image.description="BOM Local Service - Australian Bureau of Meteorology radar data caching service for Home Assistant and local services"
+LABEL org.opencontainers.image.licenses=MIT
+
 EXPOSE 8080
 
 ENTRYPOINT ["/app/start.sh"]
