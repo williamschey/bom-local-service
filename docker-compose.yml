@@ -17,6 +17,14 @@ services:
       # Virtual display for non-headless browser
       - DISPLAY=:99
       
+      # CORS Configuration (for Home Assistant integration)
+      # Multiple origins can be comma-separated: "http://homeassistant.local:8123,http://192.168.1.100:8123"
+      # Use "*" to allow all origins (less secure, but convenient for development)
+      - CORS__ALLOWEDORIGINS=${CORS__ALLOWEDORIGINS:-*}
+      - CORS__ALLOWEDMETHODS=${CORS__ALLOWEDMETHODS:-GET,POST,OPTIONS}
+      - CORS__ALLOWEDHEADERS=${CORS__ALLOWEDHEADERS:-*}
+      - CORS__ALLOWCREDENTIALS=${CORS__ALLOWCREDENTIALS:-false}
+      
       # Application configuration (override appsettings.json)
       # Use double underscore (__) for nested config keys
       - CACHEDIRECTORY=${CACHEDIRECTORY:-/app/cache}

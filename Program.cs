@@ -9,6 +9,74 @@ builder.Services.AddControllersWithViews();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
 
+// Configure CORS - MUST be added before other services
+var corsOrigins = builder.Configuration.GetValue<string>("Cors:AllowedOrigins", "*");
+var corsMethods = builder.Configuration.GetValue<string>("Cors:AllowedMethods", "GET,POST,OPTIONS");
+var corsHeaders = builder.Configuration.GetValue<string>("Cors:AllowedHeaders", "*");
+var corsAllowCredentials = builder.Configuration.GetValue<bool>("Cors:AllowCredentials", false);
+
+// Support environment variable override (comma-separated for multiple origins)
+var corsOriginsEnv = Environment.GetEnvironmentVariable("CORS__ALLOWEDORIGINS");
+if (!string.IsNullOrEmpty(corsOriginsEnv))
+{
+    corsOrigins = corsOriginsEnv;
+}
+
+var corsMethodsEnv = Environment.GetEnvironmentVariable("CORS__ALLOWEDMETHODS");
+if (!string.IsNullOrEmpty(corsMethodsEnv))
+{
+    corsMethods = corsMethodsEnv;
+}
+
+var corsHeadersEnv = Environment.GetEnvironmentVariable("CORS__ALLOWEDHEADERS");
+if (!string.IsNullOrEmpty(corsHeadersEnv))
+{
+    corsHeaders = corsHeadersEnv;
+}
+
+var corsAllowCredentialsEnv = Environment.GetEnvironmentVariable("CORS__ALLOWCREDENTIALS");
+if (!string.IsNullOrEmpty(corsAllowCredentialsEnv) && bool.TryParse(corsAllowCredentialsEnv, out var parsedCredentials))
+{
+    corsAllowCredentials = parsedCredentials;
+}
+
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        if (corsOrigins == "*")
+        {
+            policy.AllowAnyOrigin();
+        }
+        else
+        {
+            // Split comma-separated origins
+            var origins = corsOrigins.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            policy.WithOrigins(origins);
+        }
+
+        // Split comma-separated methods
+        var methods = corsMethods.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        policy.WithMethods(methods);
+
+        // Split comma-separated headers or allow all
+        if (corsHeaders == "*")
+        {
+            policy.AllowAnyHeader();
+        }
+        else
+        {
+            var headers = corsHeaders.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            policy.WithHeaders(headers);
+        }
+
+        if (corsAllowCredentials)
+        {
+            policy.AllowCredentials();
+        }
+    });
+});
+
 // Register core services via interfaces (order matters - dependencies must be registered first)
 builder.Services.AddSingleton<IDebugService, DebugService>();
 builder.Services.AddSingleton<ICacheService, CacheService>();
@@ -44,6 +112,12 @@ if (enableHttpsRedirection)
 {
     app.UseHttpsRedirection();
 }
+
+// Enable routing (required for CORS to work with controllers)
+app.UseRouting();
+
+// CORS middleware - MUST be after UseRouting but before MapControllers
+app.UseCors();
 
 // No authorization required - service is designed to run behind a reverse proxy if auth is needed
 

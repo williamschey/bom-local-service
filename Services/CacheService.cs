@@ -116,7 +116,10 @@ public class CacheService : ICacheService
             return null;
         }
         
-        var (cacheFolderPath, _) = await GetCachedScreenshotWithMetadataAsync(suburb, state, CachedDataType.Radar, null, cancellationToken);
+        // Exclude active cache folder (currently being written to) to avoid reading incomplete data
+        var locationKey = LocationHelper.GetLocationKey(suburb, state);
+        var excludeFolder = GetActiveCacheFolder(locationKey);
+        var (cacheFolderPath, _) = await GetCachedScreenshotWithMetadataAsync(suburb, state, CachedDataType.Radar, excludeFolder, cancellationToken);
         
         if (string.IsNullOrEmpty(cacheFolderPath))
         {
