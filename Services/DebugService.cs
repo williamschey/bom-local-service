@@ -90,18 +90,22 @@ namespace BomLocalService.Services;
             await File.WriteAllTextAsync(htmlPath, htmlContent, cancellationToken);
 
             // Save console messages if provided
+            // Create a snapshot to avoid collection modification during enumeration
             if (consoleMessages != null && consoleMessages.Count > 0)
             {
                 var consolePath = Path.Combine(stepFolder, "console.log");
-                var consoleText = string.Join("\n", consoleMessages.Select(msg => $"[{msg.timestamp:HH:mm:ss.fff}] [{msg.type}] {msg.text}"));
+                var consoleSnapshot = consoleMessages.ToList(); // Create snapshot
+                var consoleText = string.Join("\n", consoleSnapshot.Select(msg => $"[{msg.timestamp:HH:mm:ss.fff}] [{msg.type}] {msg.text}"));
                 await File.WriteAllTextAsync(consolePath, consoleText, cancellationToken);
             }
 
             // Save network requests summary if provided
+            // Create a snapshot to avoid collection modification during enumeration
             if (networkRequests != null && networkRequests.Count > 0)
             {
                 var networkPath = Path.Combine(stepFolder, "network.log");
-                var networkText = string.Join("\n", networkRequests.Select(req => 
+                var networkSnapshot = networkRequests.ToList(); // Create snapshot
+                var networkText = string.Join("\n", networkSnapshot.Select(req => 
                     $"[{req.timestamp:HH:mm:ss.fff}] {req.method} {req.url} -> {req.status?.ToString() ?? "pending"} ({req.resourceType})"
                 ));
                 await File.WriteAllTextAsync(networkPath, networkText, cancellationToken);
@@ -148,18 +152,22 @@ namespace BomLocalService.Services;
             }
 
             // Save console messages if provided
+            // Create a snapshot to avoid collection modification during enumeration
             if (consoleMessages != null && consoleMessages.Count > 0)
             {
                 var consolePath = Path.Combine(errorFolder, "console.log");
-                var consoleText = string.Join("\n", consoleMessages.Select(msg => $"[{msg.timestamp:HH:mm:ss.fff}] [{msg.type}] {msg.text}"));
+                var consoleSnapshot = consoleMessages.ToList(); // Create snapshot
+                var consoleText = string.Join("\n", consoleSnapshot.Select(msg => $"[{msg.timestamp:HH:mm:ss.fff}] [{msg.type}] {msg.text}"));
                 await File.WriteAllTextAsync(consolePath, consoleText, cancellationToken);
             }
 
             // Save network requests summary if provided
+            // Create a snapshot to avoid collection modification during enumeration
             if (networkRequests != null && networkRequests.Count > 0)
             {
                 var networkPath = Path.Combine(errorFolder, "network.log");
-                var networkText = string.Join("\n", networkRequests.Select(req => 
+                var networkSnapshot = networkRequests.ToList(); // Create snapshot
+                var networkText = string.Join("\n", networkSnapshot.Select(req => 
                     $"[{req.timestamp:HH:mm:ss.fff}] {req.method} {req.url} -> {req.status?.ToString() ?? "pending"} ({req.resourceType})"
                 ));
                 await File.WriteAllTextAsync(networkPath, networkText, cancellationToken);

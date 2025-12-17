@@ -24,7 +24,7 @@ RUN apt-get update && \
     chmod +x dotnet-install.sh && \
     ./dotnet-install.sh --channel 9.0 --install-dir /usr/share/dotnet && \
     rm dotnet-install.sh && \
-    apt-get install -y xvfb x11vnc fluxbox && \
+    apt-get install -y xvfb x11vnc fluxbox curl && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -44,5 +44,8 @@ LABEL org.opencontainers.image.description="BOM Local Service - Australian Burea
 LABEL org.opencontainers.image.licenses=MIT
 
 EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD curl --fail http://localhost:8080/api/health || exit 1
 
 ENTRYPOINT ["/app/start.sh"]

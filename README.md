@@ -41,9 +41,24 @@ Built on ASP.NET Core 9.0, the service uses a service-oriented architecture with
 - **BomRadarService**: Main orchestrator that coordinates cache operations, browser automation, and data retrieval
 - **CacheService**: Manages file-based storage of radar screenshots and metadata in organized directory structures
 - **BrowserService**: Handles Playwright browser automation for headless browser sessions
-- **ScrapingService**: Performs web scraping operations using the browser service to navigate and capture radar data from the BOM website
+- **ScrapingService**: Coordinates web scraping workflows (simplified orchestrator)
+- **SelectorService**: Finds page elements using configurable CSS selectors with fallback support
 - **TimeParsingService**: Parses and converts time formats from BOM data
 - **DebugService**: Provides debug functionality for troubleshooting
+
+### Scraping Architecture
+The scraping system uses a **workflow-based architecture** with configurable steps:
+
+- **Workflows**: Define fixed sequences of steps for different data types (e.g., `RadarScrapingWorkflow`, `TemperatureMapWorkflow`). Each workflow specifies its response type via generics (`IWorkflow<TResponse>`)
+- **Steps**: Individual, testable units that perform specific actions (navigation, search, map interaction, capture). Steps declare prerequisites and validate page state before execution
+- **Step Registry**: Manages and discovers available scraping steps
+- **Workflow Factory**: Creates typed workflow instances based on configuration
+
+**Configuration-Driven Design:**
+- **Selectors**: All CSS selectors are configurable via `appsettings.json` with fallback options, allowing adaptation to website changes without code modifications
+- **JavaScript Templates**: JavaScript code for page evaluation is externalized in configuration, making it easy to update logic as the website evolves
+- **Text Patterns**: Regex patterns for parsing page content are configurable, enabling quick adjustments to parsing logic
+- **Workflow Steps**: Individual steps within workflows can be enabled/disabled via configuration, providing flexibility for testing and troubleshooting
 
 ### Background Services
 - **CacheManagementService**: Periodically checks cache validity for all cached locations and triggers updates when data expires
@@ -163,11 +178,23 @@ If you want to build locally, keep the `build:` section in `docker-compose.yml` 
 docker-compose up -d
 ```
 
+**Mounting custom appsettings.json:**
+
+To use a custom configuration file, add it to the volumes section in `docker-compose.yml`:
+```yaml
+services:
+  bom-local-service:
+    volumes:
+      - ./cache:/app/cache
+      - ./appsettings.json:/app/appsettings.json:ro  # Custom config
+```
+
 This will:
 - Pull/build the image as configured
 - Start the service on port 8082 (configurable via `HOST_PORT`)
 - Mount the `./cache` directory for persistent storage
-- Apply all environment variable configurations
+- Mount custom `appsettings.json` if specified
+- Apply all environment variable configurations (which override appsettings.json)
 
 To view logs:
 ```bash
@@ -221,8 +248,50 @@ All configuration can be done via environment variables, which override the defa
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
-| `SCREENSHOT__DYNAMICCONTENTWAITMS` | Milliseconds to wait for dynamic content to load | `2000` | `3000` |
-| `SCREENSHOT__TILERENDERWAITMS` | Milliseconds to wait for map tiles to render | `5000` | `7000` |
+| `SCREENSHOT__DYNAMICCONTENTWAITMS` | Milliseconds to wait for dynamic content to load | `1500` | `2000` |
+| `SCREENSHOT__TILERENDERWAITMS` | Milliseconds to wait for map tiles to render | `3000` | `5000` |
+| `SCREENSHOT__CROP__X` | X offset in pixels for screenshot cropping | `250` | `300` |
+| `SCREENSHOT__CROP__Y` | Y offset in pixels for screenshot cropping | `0` | `50` |
+| `SCREENSHOT__CROP__RIGHTOFFSET` | Right offset in pixels for screenshot cropping | `250` | `300` |
+| `SCREENSHOT__CROP__HEIGHT` | Height in pixels for screenshot cropping (null = full height) | `null` | `800` |
+
+#### Scraping Configuration
+
+The scraping system is highly configurable through `appsettings.json`. Most scraping settings (selectors, JavaScript templates, text patterns, workflow steps) are configured in `appsettings.json`, but can be overridden in Docker deployments.
+
+**Option 1: Mount Custom appsettings.json (Recommended for Docker)**
+
+Mount a custom `appsettings.json` file as a volume:
+
+```bash
+docker run -d \
+  --name bom-local-service \
+  -p 8082:8080 \
+  -v $(pwd)/cache:/app/cache \
+  -v $(pwd)/appsettings.json:/app/appsettings.json:ro \
+  --shm-size=1gb \
+  --ipc=host \
+  ghcr.io/alexhopeoconnor/bom-local-service:latest
+```
+
+Or in `docker-compose.yml`:
+```yaml
+services:
+  bom-local-service:
+    volumes:
+      - ./cache:/app/cache
+      - ./appsettings.json:/app/appsettings.json:ro  # Add this line
+```
+
+**Option 2: Environment Variables (Simple Overrides)**
+
+For quick overrides of commonly needed settings:
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `SCRAPING__BASEURL` | Base URL for the BOM website | `https://www.bom.gov.au/` | `https://www.bom.gov.au/` |
+
+**Note**: Complex configurations (selectors, JavaScript templates, text patterns, workflow steps) are best managed via a mounted `appsettings.json` file. See the [Configuration File](#configuration-file) section below for the complete structure.
 
 #### Debug Configuration
 
@@ -305,6 +374,126 @@ Then run:
 ```bash
 docker-compose up -d
 ```
+
+#### Custom appsettings.json (For Selector/Scraping Configuration)
+
+If you need to customize selectors, JavaScript templates, or workflow steps:
+
+1. **Copy the default appsettings.json** from the repository
+2. **Edit the sections you need** (e.g., `Scraping:Selectors`)
+3. **Mount it as a volume**:
+
+```bash
+docker run -d \
+  --name bom-local-service \
+  -p 8082:8080 \
+  -v $(pwd)/cache:/app/cache \
+  -v $(pwd)/appsettings.json:/app/appsettings.json:ro \
+  --shm-size=1gb \
+  --ipc=host \
+  ghcr.io/alexhopeoconnor/bom-local-service:latest
+```
+
+Or in `docker-compose.yml`:
+```yaml
+services:
+  bom-local-service:
+    volumes:
+      - ./cache:/app/cache
+      - ./appsettings.json:/app/appsettings.json:ro
+```
+
+**Note**: Environment variables still override values in the mounted `appsettings.json`, so you can use env vars for simple overrides and the mounted file for complex configurations.
+
+### Configuration File
+
+For advanced scraping configuration, edit `appsettings.json` directly. When using Docker, you can mount a custom `appsettings.json` file as a volume (see [Scraping Configuration](#scraping-configuration) above).
+
+The scraping system supports extensive configuration:
+
+#### Scraping Selectors
+
+All CSS selectors used to find page elements are configurable with fallback options:
+
+```json
+{
+  "Scraping": {
+    "Selectors": {
+      "SearchButton": {
+        "Name": "Search Button",
+        "Selectors": [
+          "button[data-testid='searchLabel']",
+          "button[aria-label='Search for a location']",
+          "button.search-location__trigger-button"
+        ],
+        "TimeoutMs": 10000,
+        "Required": true,
+        "ErrorMessage": "Could not find search button"
+      }
+    }
+  }
+}
+```
+
+#### JavaScript Templates
+
+JavaScript code used for page evaluation is externalized and configurable:
+
+```json
+{
+  "Scraping": {
+    "JavaScriptTemplates": {
+      "WaitForSearchResults": "() => { /* template code */ }",
+      "ExtractSearchResults": "() => { /* template code */ }"
+    }
+  }
+}
+```
+
+#### Text Patterns
+
+Regex patterns for parsing page content are configurable:
+
+```json
+{
+  "Scraping": {
+    "TextPatterns": {
+      "ResultsCountPattern": "(\\d+)\\s+of\\s+(\\d+)",
+      "TimestampPattern": "(?:[A-Za-z]+\\s+)?\\d{1,2}\\s+[A-Za-z]{3},?\\s+\\d{1,2}:\\d{2}\\s+(?:am|pm)",
+      "TimestampPattern": "(?:[A-Za-z]+\\s+)?\\d{1,2}\\s+[A-Za-z]{3},?\\s+\\d{1,2}:\\d{2}\\s+(?:am|pm)"
+    }
+  }
+}
+```
+
+#### Workflow Steps
+
+Individual workflow steps can be enabled/disabled and configured:
+
+```json
+{
+  "Scraping": {
+    "Workflows": {
+      "RadarScraping": {
+        "Description": "Scrapes radar images for a location",
+        "Steps": {
+          "NavigateHomepage": { "Enabled": true },
+          "ClickSearchButton": { "Enabled": true },
+          "CaptureFrames": {
+            "Enabled": true,
+            "Parameters": {
+              "FrameCount": 7,
+              "WaitBetweenFrames": 5000
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+**Note**: Step order is fixed within workflows due to dependencies. Steps can be disabled but not reordered. See `appsettings.json` for the complete configuration structure.
 
 ## API Documentation
 
@@ -711,7 +900,8 @@ The service uses a **metrics-based estimation system** to provide accurate estim
 
 2. **Metrics Collection**: After each successful cache update, the service records:
    - Total duration of the update
-   - Duration of each phase
+   - Duration of each phase (Initializing, CapturingFrames, Saving)
+   - Duration of each individual scraping step (NavigateHomepage, ClickSearchButton, etc.)
    - Frame-level progress during capture
 
 3. **Estimation Strategy**:
@@ -729,7 +919,7 @@ The service uses a **metrics-based estimation system** to provide accurate estim
 
 **First Update (No Metrics)**:
 - Uses calculated estimate based on `Screenshot:DynamicContentWaitMs`, `Screenshot:TileRenderWaitMs`, and frame count
-- Example: ~120 seconds for 7 frames with default settings
+- Example: ~100 seconds for 7 frames with default settings (optimized wait times)
 
 **Subsequent Updates (With Metrics)**:
 - Uses median duration from historical data
@@ -998,6 +1188,25 @@ fi
 - **Check cache status**: Use `/api/cache/{suburb}/{state}/range` to verify cache exists
 - **Browser automation issues**: Check logs for Playwright errors
 
+### Scraping Failures
+
+If scraping fails (e.g., "Could not find element"), the BOM website structure may have changed:
+
+- **Check debug screenshots**: Enable `DEBUG__ENABLED=true` to see what the browser sees at each step
+- **Update selectors**: 
+  - **Docker**: Mount a custom `appsettings.json` with updated selectors (see [Scraping Configuration](#scraping-configuration))
+  - **Local**: Edit `appsettings.json` under `Scraping:Selectors` to add new CSS selectors as fallbacks
+- **Check step logs**: Each step logs its execution - look for which step failed
+- **Selector fallbacks**: The system tries multiple selectors in order, so add new selectors to the existing arrays
+- **Workflow steps**: Individual steps can be disabled via `Scraping:Workflows:RadarScraping:Steps:{StepName}:Enabled: false` if needed temporarily
+
+**Quick Fix for Docker Users:**
+
+1. Copy the default `appsettings.json` from the repository
+2. Edit the selectors that are failing
+3. Mount it as a volume: `-v $(pwd)/appsettings.json:/app/appsettings.json:ro`
+4. Restart the container
+
 ### Playwright Resource Usage
 
 Playwright browsers (Chromium) can consume significant CPU and memory:
@@ -1031,6 +1240,25 @@ docker run --cpus="1.0" ...
 - **Increase cleanup frequency**: Lower `CACHECLEANUP__INTERVALHOURS` to clean up more often
 - **Limit locations**: The service automatically manages all cached locations; reduce the number of locations being cached to lower resource usage
 
+### Performance Monitoring
+
+The service logs detailed performance metrics for each scraping workflow:
+
+**Step-Level Timing**:
+- Each step logs its duration and compares it to historical averages
+- Example: `Step WaitForMapReady completed in 45.30s (avg: 43.76s)`
+- Steps that are >50% slower than average trigger warnings: `⚠️ Step WaitForMapReady took significantly longer than average: 75.45s (avg: 50.30s, +25.15s, +50.0% slower)`
+
+**Workflow-Level Timing**:
+- Complete workflow duration is logged with step breakdown
+- Example: `Workflow RadarScraping completed in 144.40s. Step breakdown: NavigateHomepage=4.96s, ClickSearchButton=2.70s, ...`
+- Workflows that are >30% slower than average trigger warnings: `⚠️ Workflow RadarScraping took significantly longer than average: 189.45s (avg: 145.67s, +43.78s, +30.0% slower)`
+
+**Metrics Storage**:
+- Step and phase durations are stored in memory (last 20 samples)
+- Used for performance estimation and identifying bottlenecks
+- Metrics improve over time as more updates complete
+
 ## Development
 
 ### Building Locally
@@ -1049,7 +1277,45 @@ Enable debug mode to save intermediate screenshots during data capture:
 docker run -e DEBUG__ENABLED=true -e DEBUG__WAITMS=5000 ...
 ```
 
-Debug screenshots are saved in `{CACHEDIRECTORY}/debug/`.
+Debug screenshots are saved in `{CACHEDIRECTORY}/debug/`. Each scraping step saves a screenshot, HTML snapshot, and logs, making it easy to diagnose issues.
+
+### Extending the Scraping System
+
+The workflow-based architecture makes it easy to extend the scraping system:
+
+**Adding a New Workflow**:
+
+1. Create a new workflow class in `Services/Scraping/Workflows/` implementing `IWorkflow<TResponse>` where `TResponse` is your response type
+2. Define the step sequence (can reuse existing steps)
+3. Register the workflow in `WorkflowFactory`
+4. Add workflow configuration to `appsettings.json`
+
+**Adding a New Step**:
+
+1. Create a step class inheriting from `BaseScrapingStep`
+2. Implement `Name`, `Prerequisites`, `CanExecute`, and `ExecuteAsync`
+3. The step will be auto-registered on startup
+4. Add the step to a workflow's `StepNames` array
+
+**Updating Selectors**:
+
+1. Edit `appsettings.json` under `Scraping:Selectors`
+2. Add new CSS selectors to the `Selectors` array (tried in order)
+3. Adjust `TimeoutMs` if needed
+4. No code changes required
+
+**Updating JavaScript Templates**:
+
+1. Edit `appsettings.json` under `Scraping:JavaScriptTemplates`
+2. Update the template code as needed
+3. No code changes required
+
+**Updating Text Patterns**:
+
+1. Edit `appsettings.json` under `Scraping:TextPatterns`
+2. Update regex patterns as needed (e.g., `TimestampPattern`)
+3. The `TimestampPattern` supports parsing timestamps like "Wednesday 17 Dec, 11:05 pm" when the BOM website changes format
+4. No code changes required
 
 ## License
 

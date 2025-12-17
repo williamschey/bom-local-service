@@ -213,5 +213,32 @@ public interface ICacheService
     /// <param name="locationKey">The location key (suburb_state)</param>
     /// <returns>Estimated remaining seconds, or 0 if not updating or no metrics</returns>
     int GetEstimatedRemainingSeconds(string locationKey);
+    
+    /// <summary>
+    /// Records step completion timing for metrics tracking.
+    /// </summary>
+    /// <param name="stepName">The name of the step</param>
+    /// <param name="durationSeconds">The duration of the step in seconds</param>
+    void RecordStepCompletion(string stepName, double durationSeconds);
+    
+    /// <summary>
+    /// Gets the average duration for a specific step from historical data.
+    /// </summary>
+    /// <param name="stepName">The name of the step</param>
+    /// <returns>Average duration in seconds, or 0 if no data available</returns>
+    double GetAverageStepDuration(string stepName);
+    
+    /// <summary>
+    /// Gets step performance metrics for debugging/logging.
+    /// </summary>
+    /// <returns>Dictionary mapping step names to their average durations</returns>
+    Dictionary<string, double> GetStepMetrics();
+    
+    /// <summary>
+    /// Gets the average total duration of cache updates from recent metrics.
+    /// Uses median for robustness against outliers.
+    /// </summary>
+    /// <returns>Average total duration in seconds, or 0 if no data available</returns>
+    double GetAverageTotalDuration();
 }
 

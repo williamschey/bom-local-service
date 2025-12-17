@@ -1,5 +1,12 @@
 using BomLocalService.Services;
 using BomLocalService.Services.Interfaces;
+using BomLocalService.Services.Scraping;
+using BomLocalService.Services.Scraping.Steps.Navigation;
+using BomLocalService.Services.Scraping.Steps.Search;
+using BomLocalService.Services.Scraping.Steps.Map;
+using BomLocalService.Services.Scraping.Steps.Metadata;
+using BomLocalService.Services.Scraping.Steps.Capture;
+using BomLocalService.Services.Scraping.Workflows;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -8,6 +15,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllersWithViews();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
+builder.Services.AddHealthChecks();
 
 // Configure CORS - MUST be added before other services
 var corsOrigins = builder.Configuration.GetValue<string>("Cors:AllowedOrigins", "*");
@@ -82,6 +90,33 @@ builder.Services.AddSingleton<IDebugService, DebugService>();
 builder.Services.AddSingleton<ICacheService, CacheService>();
 builder.Services.AddSingleton<ITimeParsingService, TimeParsingService>();
 builder.Services.AddSingleton<IBrowserService, BrowserService>();
+builder.Services.AddSingleton<ISelectorService, SelectorService>();
+
+// Register scraping step registry
+builder.Services.AddSingleton<IScrapingStepRegistry, ScrapingStepRegistry>();
+
+// Register all scraping steps
+builder.Services.AddScoped<NavigateHomepageStep>();
+builder.Services.AddScoped<ClickSearchButtonStep>();
+builder.Services.AddScoped<FillSearchInputStep>();
+builder.Services.AddScoped<WaitForSearchResultsStep>();
+builder.Services.AddScoped<SelectSearchResultStep>();
+builder.Services.AddScoped<ClickRadarLinkStep>();
+builder.Services.AddScoped<WaitForMapReadyStep>();
+builder.Services.AddScoped<PauseRadarStep>();
+builder.Services.AddScoped<ResetToFirstFrameStep>();
+builder.Services.AddScoped<ExtractMetadataStep>();
+builder.Services.AddScoped<CalculateMapBoundsStep>();
+builder.Services.AddScoped<CaptureFramesStep>();
+
+// Register workflows
+builder.Services.AddScoped<RadarScrapingWorkflow>();
+builder.Services.AddScoped<TemperatureMapWorkflow>();
+
+// Register workflow factory
+builder.Services.AddSingleton<IWorkflowFactory, WorkflowFactory>();
+
+// Register scraping service (depends on workflow factory)
 builder.Services.AddSingleton<IScrapingService, ScrapingService>();
 
 // Register BOM Radar Service as singleton (orchestrator, depends on all above services)
@@ -128,6 +163,27 @@ app.MapControllerRoute(
 
 // Map API controllers (with /api prefix)
 app.MapControllers();
+
+// Map health check endpoint for Docker health monitoring
+app.MapHealthChecks("/api/health");
+
+// Auto-register all scraping steps in the registry
+var stepRegistry = app.Services.GetRequiredService<IScrapingStepRegistry>();
+var stepTypes = typeof(IScrapingStep).Assembly.GetTypes()
+    .Where(t => typeof(IScrapingStep).IsAssignableFrom(t) && !t.IsInterface && !t.IsAbstract && !t.IsGenericType);
+foreach (var stepType in stepTypes)
+{
+    try
+    {
+        var step = (IScrapingStep)ActivatorUtilities.CreateInstance(app.Services, stepType);
+        stepRegistry.RegisterStep(step);
+    }
+    catch (Exception ex)
+    {
+        var logger = app.Services.GetRequiredService<ILogger<Program>>();
+        logger.LogWarning(ex, "Failed to register step {StepType}", stepType.Name);
+    }
+}
 
 // Cleanup incomplete cache folders from previous crashes/restarts before starting services
 var cacheService = app.Services.GetRequiredService<ICacheService>();

@@ -18,6 +18,7 @@ public class CacheService : ICacheService
     private readonly ConcurrentDictionary<string, (DateTime startTime, CacheUpdatePhase phase, int? currentFrame, int? totalFrames)> _updateProgress = new();
     private readonly ConcurrentQueue<double> _recentTotalDurations = new(); // Overall durations in seconds
     private readonly ConcurrentDictionary<CacheUpdatePhase, ConcurrentQueue<double>> _phaseDurations = new(); // Phase -> durations
+    private readonly ConcurrentDictionary<string, ConcurrentQueue<double>> _stepDurations = new(); // Step name -> durations
     private readonly object _metricsLock = new();
     private const int MaxSamples = 20;
 
@@ -589,7 +590,7 @@ public class CacheService : ICacheService
                 }
             }
             
-            _logger.LogDebug("Cache update completed in {Duration:F1} seconds for {Location}", totalDuration, locationKey);
+            _logger.LogInformation("Cache update completed in {Duration:F1} seconds for {Location}", totalDuration, locationKey);
         }
     }
     
@@ -665,7 +666,7 @@ public class CacheService : ICacheService
     /// <summary>
     /// Gets the average total duration of cache updates from recent metrics.
     /// </summary>
-    private double GetAverageTotalDuration()
+    public double GetAverageTotalDuration()
     {
         lock (_metricsLock)
         {
@@ -704,6 +705,59 @@ public class CacheService : ICacheService
             }
             var durationsArray = durations.ToArray();
             return durationsArray.Average();
+        }
+    }
+    
+    /// <summary>
+    /// Records step completion timing for metrics tracking.
+    /// </summary>
+    public void RecordStepCompletion(string stepName, double durationSeconds)
+    {
+        lock (_metricsLock)
+        {
+            var durations = _stepDurations.GetOrAdd(stepName, _ => new ConcurrentQueue<double>());
+            durations.Enqueue(durationSeconds);
+            
+            while (durations.Count > MaxSamples)
+            {
+                durations.TryDequeue(out _);
+            }
+        }
+    }
+    
+    /// <summary>
+    /// Gets the average duration for a specific step from historical data.
+    /// </summary>
+    public double GetAverageStepDuration(string stepName)
+    {
+        lock (_metricsLock)
+        {
+            if (!_stepDurations.TryGetValue(stepName, out var durations) || durations.Count == 0)
+            {
+                return 0;
+            }
+            var durationsArray = durations.ToArray();
+            return durationsArray.Average();
+        }
+    }
+    
+    /// <summary>
+    /// Gets step performance metrics for debugging/logging.
+    /// </summary>
+    public Dictionary<string, double> GetStepMetrics()
+    {
+        lock (_metricsLock)
+        {
+            var metrics = new Dictionary<string, double>();
+            foreach (var kvp in _stepDurations)
+            {
+                if (kvp.Value.Count > 0)
+                {
+                    var durations = kvp.Value.ToArray();
+                    metrics[kvp.Key] = durations.Average();
+                }
+            }
+            return metrics;
         }
     }
     
