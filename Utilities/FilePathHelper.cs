@@ -5,12 +5,12 @@ namespace BomLocalService.Utilities;
 public static class FilePathHelper
 {
     /// <summary>
-    /// Gets the cache directory path from configuration or returns default
+    /// Gets the cache directory path from configuration (default from appsettings.json, can be overridden via CACHEDIRECTORY environment variable)
     /// </summary>
     public static string GetCacheDirectory(IConfiguration configuration)
     {
-        return configuration.GetValue<string>("CacheDirectory") 
-            ?? Path.Combine(AppContext.BaseDirectory, "cache");
+        return configuration.GetValue<string>("CacheDirectory")
+            ?? throw new InvalidOperationException("CacheDirectory configuration is required. Set it in appsettings.json or via CACHEDIRECTORY environment variable.");
     }
 
     /// <summary>

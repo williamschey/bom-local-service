@@ -32,9 +32,27 @@ public class BomRadarService : IBomRadarService, IDisposable
         _scrapingService = scrapingService;
         _debugService = debugService;
         _configuration = configuration;
-        _cacheExpirationMinutes = configuration.GetValue<double>("CacheExpirationMinutes", 12.5);
-        _cacheManagementCheckIntervalMinutes = configuration.GetValue<int>("CacheManagement:CheckIntervalMinutes", 5);
-        _timeSeriesWarningFolderCount = configuration.GetValue<int>("TimeSeries:WarningFolderCount", 200);
+        
+        var cacheExpirationMinutesConfig = configuration.GetValue<double?>("CacheExpirationMinutes");
+        if (!cacheExpirationMinutesConfig.HasValue)
+        {
+            throw new InvalidOperationException("CacheExpirationMinutes configuration is required. Set it in appsettings.json or via CACHEEXPIRATIONMINUTES environment variable.");
+        }
+        _cacheExpirationMinutes = cacheExpirationMinutesConfig.Value;
+        
+        var cacheManagementCheckIntervalMinutesConfig = configuration.GetValue<int?>("CacheManagement:CheckIntervalMinutes");
+        if (!cacheManagementCheckIntervalMinutesConfig.HasValue)
+        {
+            throw new InvalidOperationException("CacheManagement:CheckIntervalMinutes configuration is required. Set it in appsettings.json or via CACHEMANAGEMENT__CHECKINTERVALMINUTES environment variable.");
+        }
+        _cacheManagementCheckIntervalMinutes = cacheManagementCheckIntervalMinutesConfig.Value;
+        
+        var timeSeriesWarningFolderCountConfig = configuration.GetValue<int?>("TimeSeries:WarningFolderCount");
+        if (!timeSeriesWarningFolderCountConfig.HasValue)
+        {
+            throw new InvalidOperationException("TimeSeries:WarningFolderCount configuration is required. Set it in appsettings.json or via TIMESERIES__WARNINGFOLDERCOUNT environment variable.");
+        }
+        _timeSeriesWarningFolderCount = timeSeriesWarningFolderCountConfig.Value;
         
         // Calculate estimated cache update duration
         _estimatedUpdateDurationSeconds = CacheHelper.GetEstimatedUpdateDurationSeconds(configuration, CachedDataType.Radar);

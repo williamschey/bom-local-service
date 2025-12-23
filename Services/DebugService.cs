@@ -14,20 +14,17 @@ namespace BomLocalService.Services;
         public DebugService(ILogger<DebugService> logger, IConfiguration configuration)
         {
             _logger = logger;
-            _waitMs = configuration.GetValue<int>("Debug:WaitMs", 2000);
+            
+            var waitMsConfig = configuration.GetValue<int?>("Debug:WaitMs");
+            if (!waitMsConfig.HasValue)
+            {
+                throw new InvalidOperationException("Debug:WaitMs configuration is required. Set it in appsettings.json or via DEBUG__WAITMS environment variable.");
+            }
+            _waitMs = waitMsConfig.Value;
         
-        // Check all possible ways the config might be set
-        var debugEnabledEnv = Environment.GetEnvironmentVariable("DEBUG__ENABLED");
-        var debugEnabledConfig = configuration.GetValue<bool>("Debug:Enabled", false);
-        var debugEnabledFromConfig = configuration["Debug:Enabled"];
-        
-        _logger.LogInformation("Debug configuration check - Env var DEBUG__ENABLED: {EnvVar}, Config Debug:Enabled: {ConfigValue}, Config string: {ConfigString}", 
-            debugEnabledEnv ?? "null", debugEnabledConfig, debugEnabledFromConfig ?? "null");
-        
-        // Try environment variable first, then config
-        _enabled = !string.IsNullOrEmpty(debugEnabledEnv) 
-            ? bool.TryParse(debugEnabledEnv, out var envBool) && envBool
-            : debugEnabledConfig;
+        // Get debug enabled from configuration (default from appsettings.json, can be overridden via DEBUG__ENABLED environment variable)
+        // Note: bool defaults to false if not found, which is acceptable for Debug:Enabled
+        _enabled = configuration.GetValue<bool>("Debug:Enabled", false);
         
         var cacheDirectory = FilePathHelper.GetCacheDirectory(configuration);
         _debugDirectory = Path.Combine(cacheDirectory, "debug");

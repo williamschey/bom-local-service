@@ -15,7 +15,15 @@ public class BrowserService : IBrowserService
     public BrowserService(ILogger<BrowserService> logger, IConfiguration configuration, IDebugService debugService)
     {
         _logger = logger;
-        _timezone = configuration.GetValue<string>("Timezone") ?? "Australia/Brisbane";
+        // Get timezone from configuration (default from appsettings.json, can be overridden via TIMEZONE environment variable)
+        var timezone = configuration.GetValue<string>("Timezone");
+        
+        if (string.IsNullOrEmpty(timezone))
+        {
+            throw new InvalidOperationException("Timezone configuration is required. Set it in appsettings.json or via TIMEZONE environment variable.");
+        }
+        
+        _timezone = timezone;
         _debugService = debugService;
     }
 

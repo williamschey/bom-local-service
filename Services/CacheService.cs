@@ -27,7 +27,13 @@ public class CacheService : ICacheService
         _logger = logger;
         _configuration = configuration;
         _cacheDirectory = FilePathHelper.GetCacheDirectory(configuration);
-        _cacheExpirationMinutes = configuration.GetValue<double>("CacheExpirationMinutes", 12.5);
+        
+        var cacheExpirationMinutesConfig = configuration.GetValue<double?>("CacheExpirationMinutes");
+        if (!cacheExpirationMinutesConfig.HasValue)
+        {
+            throw new InvalidOperationException("CacheExpirationMinutes configuration is required. Set it in appsettings.json or via CACHEEXPIRATIONMINUTES environment variable.");
+        }
+        _cacheExpirationMinutes = cacheExpirationMinutesConfig.Value;
         
         if (_cacheExpirationMinutes <= 0)
         {

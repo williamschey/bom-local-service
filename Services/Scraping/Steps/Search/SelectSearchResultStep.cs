@@ -174,7 +174,12 @@ public class SelectSearchResultStep : BaseScrapingStep
             
             // Wait for forecast page to load
             await context.Page.WaitForLoadStateAsync(LoadState.DOMContentLoaded, new PageWaitForLoadStateOptions { Timeout = 15000 });
-            var dynamicContentWaitMs = Configuration.GetValue<int>("Screenshot:DynamicContentWaitMs", 2000);
+            var dynamicContentWaitMsConfig = Configuration.GetValue<int?>("Screenshot:DynamicContentWaitMs");
+            if (!dynamicContentWaitMsConfig.HasValue)
+            {
+                throw new InvalidOperationException("Screenshot:DynamicContentWaitMs configuration is required. Set it in appsettings.json or via SCREENSHOT__DYNAMICCONTENTWAITMS environment variable.");
+            }
+            var dynamicContentWaitMs = dynamicContentWaitMsConfig.Value;
             await context.Page.WaitForTimeoutAsync(dynamicContentWaitMs);
             await SaveDebugAsync(context, 5, "forecast_page_loaded", cancellationToken);
             

@@ -14,39 +14,25 @@ var builder = WebApplication.CreateBuilder(args);
 // AddControllersWithViews includes AddControllers, so we use it for both MVC and API controllers
 builder.Services.AddControllersWithViews();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddOpenApi();
 builder.Services.AddHealthChecks();
 
 // Configure CORS - MUST be added before other services
-var corsOrigins = builder.Configuration.GetValue<string>("Cors:AllowedOrigins", "*");
-var corsMethods = builder.Configuration.GetValue<string>("Cors:AllowedMethods", "GET,POST,OPTIONS");
-var corsHeaders = builder.Configuration.GetValue<string>("Cors:AllowedHeaders", "*");
-var corsAllowCredentials = builder.Configuration.GetValue<bool>("Cors:AllowCredentials", false);
+// Configuration values come from appsettings.json (defaults) and can be overridden via environment variables
+// Environment variables use double underscore for nested keys (e.g., CORS__ALLOWEDORIGINS)
+var corsOrigins = builder.Configuration.GetValue<string>("Cors:AllowedOrigins")
+    ?? throw new InvalidOperationException("Cors:AllowedOrigins configuration is required. Set it in appsettings.json or via CORS__ALLOWEDORIGINS environment variable.");
+var corsMethods = builder.Configuration.GetValue<string>("Cors:AllowedMethods")
+    ?? throw new InvalidOperationException("Cors:AllowedMethods configuration is required. Set it in appsettings.json or via CORS__ALLOWEDMETHODS environment variable.");
+var corsHeaders = builder.Configuration.GetValue<string>("Cors:AllowedHeaders")
+    ?? throw new InvalidOperationException("Cors:AllowedHeaders configuration is required. Set it in appsettings.json or via CORS__ALLOWEDHEADERS environment variable.");
 
-// Support environment variable override (comma-separated for multiple origins)
-var corsOriginsEnv = Environment.GetEnvironmentVariable("CORS__ALLOWEDORIGINS");
-if (!string.IsNullOrEmpty(corsOriginsEnv))
+// For bool, check if the key exists in configuration (GetValue<bool> returns false if not found, which is ambiguous)
+var corsAllowCredentialsKey = builder.Configuration["Cors:AllowCredentials"];
+if (corsAllowCredentialsKey == null)
 {
-    corsOrigins = corsOriginsEnv;
+    throw new InvalidOperationException("Cors:AllowCredentials configuration is required. Set it in appsettings.json or via CORS__ALLOWCREDENTIALS environment variable.");
 }
-
-var corsMethodsEnv = Environment.GetEnvironmentVariable("CORS__ALLOWEDMETHODS");
-if (!string.IsNullOrEmpty(corsMethodsEnv))
-{
-    corsMethods = corsMethodsEnv;
-}
-
-var corsHeadersEnv = Environment.GetEnvironmentVariable("CORS__ALLOWEDHEADERS");
-if (!string.IsNullOrEmpty(corsHeadersEnv))
-{
-    corsHeaders = corsHeadersEnv;
-}
-
-var corsAllowCredentialsEnv = Environment.GetEnvironmentVariable("CORS__ALLOWCREDENTIALS");
-if (!string.IsNullOrEmpty(corsAllowCredentialsEnv) && bool.TryParse(corsAllowCredentialsEnv, out var parsedCredentials))
-{
-    corsAllowCredentials = parsedCredentials;
-}
+var corsAllowCredentials = builder.Configuration.GetValue<bool>("Cors:AllowCredentials");
 
 builder.Services.AddCors(options =>
 {
@@ -126,23 +112,12 @@ builder.Services.AddSingleton<IBomRadarService, BomLocalService.Services.BomRada
 builder.Services.AddHostedService<CacheCleanupService>();
 builder.Services.AddHostedService<CacheManagementService>();
 
-// Add configuration - appsettings.json provides default values
-// All values can be overridden via environment variables
-builder.Configuration.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
-
 var app = builder.Build();
 
 // Configure the HTTP request pipeline
-if (app.Environment.IsDevelopment())
-{
-    app.MapOpenApi();
-}
-
 // HTTPS redirection is optional and disabled by default for Docker flexibility
-// Users can enable it by setting ENABLE_HTTPS_REDIRECTION=true environment variable
-// or EnableHttpsRedirection=true in appsettings.json
-var enableHttpsRedirection = builder.Configuration.GetValue<bool>("EnableHttpsRedirection", false) ||
-                             Environment.GetEnvironmentVariable("ENABLE_HTTPS_REDIRECTION")?.Equals("true", StringComparison.OrdinalIgnoreCase) == true;
+// Users can enable it by setting EnableHttpsRedirection=true in appsettings.json or ENABLEHTTPSREDIRECTION=true environment variable
+var enableHttpsRedirection = builder.Configuration.GetValue<bool>("EnableHttpsRedirection", false);
 if (enableHttpsRedirection)
 {
     app.UseHttpsRedirection();

@@ -44,8 +44,20 @@ public class RadarScrapingWorkflow : IWorkflow<RadarResponse>
         _stepRegistry = stepRegistry;
         _configuration = configuration;
         _cacheService = cacheService;
-        _cacheExpirationMinutes = configuration.GetValue<double>("CacheExpirationMinutes", 12.5);
-        _cacheManagementCheckIntervalMinutes = configuration.GetValue<int>("CacheManagement:CheckIntervalMinutes", 5);
+        
+        var cacheExpirationMinutesConfig = configuration.GetValue<double?>("CacheExpirationMinutes");
+        if (!cacheExpirationMinutesConfig.HasValue)
+        {
+            throw new InvalidOperationException("CacheExpirationMinutes configuration is required. Set it in appsettings.json or via CACHEEXPIRATIONMINUTES environment variable.");
+        }
+        _cacheExpirationMinutes = cacheExpirationMinutesConfig.Value;
+        
+        var cacheManagementCheckIntervalMinutesConfig = configuration.GetValue<int?>("CacheManagement:CheckIntervalMinutes");
+        if (!cacheManagementCheckIntervalMinutesConfig.HasValue)
+        {
+            throw new InvalidOperationException("CacheManagement:CheckIntervalMinutes configuration is required. Set it in appsettings.json or via CACHEMANAGEMENT__CHECKINTERVALMINUTES environment variable.");
+        }
+        _cacheManagementCheckIntervalMinutes = cacheManagementCheckIntervalMinutesConfig.Value;
     }
     
     public async Task<RadarResponse> ExecuteAsync(ScrapingContext context, CancellationToken cancellationToken)

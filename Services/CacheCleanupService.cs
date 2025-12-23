@@ -14,8 +14,20 @@ public class CacheCleanupService : BackgroundService
     {
         _logger = logger;
         _cacheDirectory = FilePathHelper.GetCacheDirectory(configuration);
-        _retentionHours = configuration.GetValue<int>("CacheRetentionHours", 24);
-        var cleanupIntervalHours = configuration.GetValue<int>("CacheCleanup:IntervalHours", 1);
+        
+        var retentionHoursConfig = configuration.GetValue<int?>("CacheRetentionHours");
+        if (!retentionHoursConfig.HasValue)
+        {
+            throw new InvalidOperationException("CacheRetentionHours configuration is required. Set it in appsettings.json or via CACHERETENTIONHOURS environment variable.");
+        }
+        _retentionHours = retentionHoursConfig.Value;
+        
+        var cleanupIntervalHoursConfig = configuration.GetValue<int?>("CacheCleanup:IntervalHours");
+        if (!cleanupIntervalHoursConfig.HasValue)
+        {
+            throw new InvalidOperationException("CacheCleanup:IntervalHours configuration is required. Set it in appsettings.json or via CACHECLEANUP__INTERVALHOURS environment variable.");
+        }
+        var cleanupIntervalHours = cleanupIntervalHoursConfig.Value;
         _cleanupInterval = TimeSpan.FromHours(cleanupIntervalHours);
     }
 

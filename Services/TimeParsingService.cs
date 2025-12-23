@@ -14,7 +14,13 @@ public class TimeParsingService : ITimeParsingService
     public TimeParsingService(ILogger<TimeParsingService> logger, IConfiguration configuration)
     {
         _logger = logger;
-        var timezone = configuration.GetValue<string>("Timezone") ?? "Australia/Brisbane";
+        // Get timezone from configuration (default from appsettings.json, can be overridden via TIMEZONE environment variable)
+        var timezone = configuration.GetValue<string>("Timezone");
+        
+        if (string.IsNullOrEmpty(timezone))
+        {
+            throw new InvalidOperationException("Timezone configuration is required. Set it in appsettings.json or via TIMEZONE environment variable.");
+        }
         
         try
         {
@@ -23,8 +29,8 @@ public class TimeParsingService : ITimeParsingService
         }
         catch (TimeZoneNotFoundException)
         {
-            _logger.LogWarning("Timezone {Timezone} not found, defaulting to Australia/Brisbane", timezone);
-            _timeZoneInfo = TimeZoneInfo.FindSystemTimeZoneById("Australia/Brisbane");
+            _logger.LogError("Timezone {Timezone} not found. Please use a valid IANA timezone identifier.", timezone);
+            throw new InvalidOperationException($"Invalid timezone '{timezone}'. Please use a valid IANA timezone identifier (e.g., Australia/Sydney, Australia/Brisbane).");
         }
     }
 

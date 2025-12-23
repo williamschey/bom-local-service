@@ -218,7 +218,7 @@ All configuration can be done via environment variables, which override the defa
 |----------|-------------|---------|
 | `ASPNETCORE_ENVIRONMENT` | Runtime environment (Development/Production) | `Production` |
 | `ASPNETCORE_URLS` | URLs the service listens on | `http://+:8080` |
-| `ENABLE_HTTPS_REDIRECTION` | Enable HTTPS redirection | `false` |
+| `ENABLEHTTPSREDIRECTION` | Enable HTTPS redirection | `false` |
 
 #### Application Configuration
 
@@ -235,8 +235,7 @@ All configuration can be done via environment variables, which override the defa
 |----------|-------------|---------|---------|
 | `CACHEMANAGEMENT__CHECKINTERVALMINUTES` | Interval between cache validity checks | `5` | `10` |
 | `CACHEMANAGEMENT__INITIALDELAYSECONDS` | Delay before first cache check on startup | `10` | `30` |
-| `CACHEMANAGEMENT__UPDATESTAGGERSECONDS` | Delay between triggering cache updates | `2` | `5` |
-| `CACHEMANAGEMENT__LOCATIONSTAGGERSECONDS` | Delay between processing different locations | `1` | `2` |
+| `CACHEMANAGEMENT__LOCATIONSTAGGERSECONDS` | Delay between processing different locations (used for both initial and periodic updates) | `1` | `2` |
 
 #### Cache Cleanup
 
@@ -878,13 +877,6 @@ DELETE /api/cache/{suburb}/{state}
 {
   "message": "Cache deleted for Brisbane, QLD"
 }
-```
-
-### OpenAPI Documentation
-
-When running in Development mode, OpenAPI documentation is available at:
-```
-http://localhost:8082/openapi/v1.json
 ```
 
 ## Cache Update Estimation

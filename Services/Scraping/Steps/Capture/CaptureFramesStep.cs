@@ -25,15 +25,38 @@ public class CaptureFramesStep : BaseScrapingStep
         : base(logger, selectorService, debugService, configuration)
     {
         _cacheService = cacheService;
-        _tileRenderWaitMs = configuration.GetValue<int>("Screenshot:TileRenderWaitMs", 5000);
+        
+        var tileRenderWaitMsConfig = configuration.GetValue<int?>("Screenshot:TileRenderWaitMs");
+        if (!tileRenderWaitMsConfig.HasValue)
+        {
+            throw new InvalidOperationException("Screenshot:TileRenderWaitMs configuration is required. Set it in appsettings.json or via SCREENSHOT__TILERENDERWAITMS environment variable.");
+        }
+        _tileRenderWaitMs = tileRenderWaitMsConfig.Value;
         
         var cropSection = configuration.GetSection("Screenshot:Crop");
+        
+        var cropXConfig = cropSection.GetValue<int?>("X");
+        if (!cropXConfig.HasValue)
+        {
+            throw new InvalidOperationException("Screenshot:Crop:X configuration is required. Set it in appsettings.json or via SCREENSHOT__CROP__X environment variable.");
+        }
+        var cropYConfig = cropSection.GetValue<int?>("Y");
+        if (!cropYConfig.HasValue)
+        {
+            throw new InvalidOperationException("Screenshot:Crop:Y configuration is required. Set it in appsettings.json or via SCREENSHOT__CROP__Y environment variable.");
+        }
+        var cropRightOffsetConfig = cropSection.GetValue<int?>("RightOffset");
+        if (!cropRightOffsetConfig.HasValue)
+        {
+            throw new InvalidOperationException("Screenshot:Crop:RightOffset configuration is required. Set it in appsettings.json or via SCREENSHOT__CROP__RIGHTOFFSET environment variable.");
+        }
+        
         _cropConfig = new ScreenshotCropConfig
         {
-            X = cropSection.GetValue<int>("X", 0),
-            Y = cropSection.GetValue<int>("Y", 0),
-            RightOffset = cropSection.GetValue<int>("RightOffset", 0),
-            Height = cropSection.GetValue<int?>("Height")
+            X = cropXConfig.Value,
+            Y = cropYConfig.Value,
+            RightOffset = cropRightOffsetConfig.Value,
+            Height = cropSection.GetValue<int?>("Height") // Height is optional (nullable)
         };
     }
     

@@ -14,8 +14,12 @@ public static class CacheHelper
     public static int GetFrameCountForDataType(IConfiguration configuration, CachedDataType dataType)
     {
         var dataTypeName = dataType.ToString();
-        var frameCount = configuration.GetValue<int>($"CachedDataTypes:{dataTypeName}:FrameCount", 7);
-        return frameCount;
+        var frameCountConfig = configuration.GetValue<int?>($"CachedDataTypes:{dataTypeName}:FrameCount");
+        if (!frameCountConfig.HasValue)
+        {
+            throw new InvalidOperationException($"CachedDataTypes:{dataTypeName}:FrameCount configuration is required. Set it in appsettings.json or via CACHEDDATATYPES__{dataTypeName.ToUpperInvariant()}__FRAMECOUNT environment variable.");
+        }
+        return frameCountConfig.Value;
     }
 
     /// <summary>
@@ -71,8 +75,20 @@ public static class CacheHelper
     {
         // Calculate based on actual wait times and frame count
         var frameCount = GetFrameCountForDataType(configuration, dataType);
-        var tileRenderWaitMs = configuration.GetValue<int>("Screenshot:TileRenderWaitMs", 5000);
-        var dynamicContentWaitMs = configuration.GetValue<int>("Screenshot:DynamicContentWaitMs", 2000);
+        
+        var tileRenderWaitMsConfig = configuration.GetValue<int?>("Screenshot:TileRenderWaitMs");
+        if (!tileRenderWaitMsConfig.HasValue)
+        {
+            throw new InvalidOperationException("Screenshot:TileRenderWaitMs configuration is required. Set it in appsettings.json or via SCREENSHOT__TILERENDERWAITMS environment variable.");
+        }
+        var tileRenderWaitMs = tileRenderWaitMsConfig.Value;
+        
+        var dynamicContentWaitMsConfig = configuration.GetValue<int?>("Screenshot:DynamicContentWaitMs");
+        if (!dynamicContentWaitMsConfig.HasValue)
+        {
+            throw new InvalidOperationException("Screenshot:DynamicContentWaitMs configuration is required. Set it in appsettings.json or via SCREENSHOT__DYNAMICCONTENTWAITMS environment variable.");
+        }
+        var dynamicContentWaitMs = dynamicContentWaitMsConfig.Value;
         
         // Rough calculation:
         // - Initial page load and navigation: ~10-15 seconds

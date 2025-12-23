@@ -11,6 +11,8 @@ public class CacheManagementService : BackgroundService
     private readonly IBrowserService _browserService;
     private readonly IConfiguration _configuration;
     private readonly TimeSpan _checkInterval;
+    private readonly TimeSpan _locationStaggerInterval;
+    private readonly TimeSpan _initialDelayInterval;
     private readonly HashSet<string> _activeUpdates = new();
     private readonly object _lock = new();
 
@@ -24,14 +26,34 @@ public class CacheManagementService : BackgroundService
         _bomRadarService = bomRadarService;
         _browserService = browserService;
         _configuration = configuration;
-        var checkIntervalMinutes = configuration.GetValue<int>("CacheManagement:CheckIntervalMinutes", 5);
+        
+        var checkIntervalMinutesConfig = configuration.GetValue<int?>("CacheManagement:CheckIntervalMinutes");
+        if (!checkIntervalMinutesConfig.HasValue)
+        {
+            throw new InvalidOperationException("CacheManagement:CheckIntervalMinutes configuration is required. Set it in appsettings.json or via CACHEMANAGEMENT__CHECKINTERVALMINUTES environment variable.");
+        }
+        var checkIntervalMinutes = checkIntervalMinutesConfig.Value;
         
         if (checkIntervalMinutes <= 0 || checkIntervalMinutes > 60)
         {
             throw new ArgumentException("CacheManagement:CheckIntervalMinutes must be between 1 and 60", nameof(configuration));
         }
-        
         _checkInterval = TimeSpan.FromMinutes(checkIntervalMinutes);
+        
+        // LocationStaggerSeconds is used for delays between processing locations (both initial and periodic)
+        var locationStaggerSecondsConfig = configuration.GetValue<int?>("CacheManagement:LocationStaggerSeconds");
+        if (!locationStaggerSecondsConfig.HasValue)
+        {
+            throw new InvalidOperationException("CacheManagement:LocationStaggerSeconds configuration is required. Set it in appsettings.json or via CACHEMANAGEMENT__LOCATIONSTAGGERSECONDS environment variable.");
+        }
+        _locationStaggerInterval = TimeSpan.FromSeconds(locationStaggerSecondsConfig.Value);
+        
+        var initialDelaySecondsConfig = configuration.GetValue<int?>("CacheManagement:InitialDelaySeconds");
+        if (!initialDelaySecondsConfig.HasValue)
+        {
+            throw new InvalidOperationException("CacheManagement:InitialDelaySeconds configuration is required. Set it in appsettings.json or via CACHEMANAGEMENT__INITIALDELAYSECONDS environment variable.");
+        }
+        _initialDelayInterval = TimeSpan.FromSeconds(initialDelaySecondsConfig.Value);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -39,8 +61,7 @@ public class CacheManagementService : BackgroundService
         _logger.LogInformation("Cache management service started. Check interval: {Interval}", _checkInterval);
 
         // Wait a bit for the service to fully initialize
-        var initialDelaySeconds = _configuration.GetValue<int>("CacheManagement:InitialDelaySeconds", 10);
-        await Task.Delay(TimeSpan.FromSeconds(initialDelaySeconds), stoppingToken);
+        await Task.Delay(_initialDelayInterval, stoppingToken);
 
         // Pre-warm the browser before starting cache updates
         _logger.LogInformation("Pre-warming browser before cache updates");
@@ -58,28 +79,7 @@ public class CacheManagementService : BackgroundService
 
         // Initial cache update on startup
         _logger.LogInformation("Performing initial cache update for {Count} locations", locationsToManage.Count);
-        int initialUpdatesTriggered = 0;
-        int initialCachesValid = 0;
-        
-        foreach (var (suburb, state) in locationsToManage)
-        {
-            if (stoppingToken.IsCancellationRequested)
-                break;
-
-            var (triggered, isValid) = await UpdateCacheIfNeededAsync(suburb, state, stoppingToken);
-            if (triggered)
-            {
-                initialUpdatesTriggered++;
-            }
-            else if (isValid)
-            {
-                initialCachesValid++;
-            }
-
-            // Stagger updates to avoid overwhelming the system
-            var updateStaggerSeconds = _configuration.GetValue<int>("CacheManagement:UpdateStaggerSeconds", 2);
-            await Task.Delay(TimeSpan.FromSeconds(updateStaggerSeconds), stoppingToken);
-        }
+        var (initialUpdatesTriggered, initialCachesValid) = await ProcessLocationsAsync(locationsToManage, stoppingToken);
         
         _logger.LogInformation("Initial cache update completed: {UpdatesTriggered} updates triggered, {CachesValid} caches valid", 
             initialUpdatesTriggered, initialCachesValid);
@@ -95,28 +95,7 @@ public class CacheManagementService : BackgroundService
                 locationsToManage = GetLocationsToManage();
                 _logger.LogInformation("Starting periodic cache check for {Count} locations", locationsToManage.Count);
 
-                int updatesTriggered = 0;
-                int cachesValid = 0;
-
-                foreach (var (suburb, state) in locationsToManage)
-                {
-                    if (stoppingToken.IsCancellationRequested)
-                        break;
-
-                    var (triggered, isValid) = await UpdateCacheIfNeededAsync(suburb, state, stoppingToken);
-                    if (triggered)
-                    {
-                        updatesTriggered++;
-                    }
-                    else if (isValid)
-                    {
-                        cachesValid++;
-                    }
-
-                    // Small delay between locations
-                    var locationStaggerSeconds = _configuration.GetValue<int>("CacheManagement:LocationStaggerSeconds", 1);
-                    await Task.Delay(TimeSpan.FromSeconds(locationStaggerSeconds), stoppingToken);
-                }
+                var (updatesTriggered, cachesValid) = await ProcessLocationsAsync(locationsToManage, stoppingToken);
 
                 _logger.LogInformation("Periodic cache check completed: {UpdatesTriggered} updates triggered, {CachesValid} caches valid", 
                     updatesTriggered, cachesValid);
@@ -126,6 +105,38 @@ public class CacheManagementService : BackgroundService
                 _logger.LogError(ex, "Error during cache management cycle");
             }
         }
+    }
+
+    /// <summary>
+    /// Processes a list of locations, checking and updating cache as needed
+    /// </summary>
+    private async Task<(int updatesTriggered, int cachesValid)> ProcessLocationsAsync(
+        List<(string suburb, string state)> locations, 
+        CancellationToken cancellationToken)
+    {
+        int updatesTriggered = 0;
+        int cachesValid = 0;
+
+        foreach (var (suburb, state) in locations)
+        {
+            if (cancellationToken.IsCancellationRequested)
+                break;
+
+            var (triggered, isValid) = await UpdateCacheIfNeededAsync(suburb, state, cancellationToken);
+            if (triggered)
+            {
+                updatesTriggered++;
+            }
+            else if (isValid)
+            {
+                cachesValid++;
+            }
+
+            // Stagger processing to avoid overwhelming the system
+            await Task.Delay(_locationStaggerInterval, cancellationToken);
+        }
+
+        return (updatesTriggered, cachesValid);
     }
 
     private async Task<(bool updateTriggered, bool isValid)> UpdateCacheIfNeededAsync(string suburb, string state, CancellationToken cancellationToken)

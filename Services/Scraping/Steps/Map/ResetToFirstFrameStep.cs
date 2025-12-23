@@ -86,7 +86,12 @@ public class ResetToFirstFrameStep : BaseScrapingStep
             await SaveDebugAsync(context, 10, "scrubber_at_position_0", cancellationToken);
             
             // Wait for frame 0 tiles to fully render
-            var tileRenderWaitMs = Configuration.GetValue<int>("Screenshot:TileRenderWaitMs", 5000);
+            var tileRenderWaitMsConfig = Configuration.GetValue<int?>("Screenshot:TileRenderWaitMs");
+            if (!tileRenderWaitMsConfig.HasValue)
+            {
+                throw new InvalidOperationException("Screenshot:TileRenderWaitMs configuration is required. Set it in appsettings.json or via SCREENSHOT__TILERENDERWAITMS environment variable.");
+            }
+            var tileRenderWaitMs = tileRenderWaitMsConfig.Value;
             await context.Page.WaitForTimeoutAsync(tileRenderWaitMs);
             
             context.CurrentState = PageState.Frame0Selected;

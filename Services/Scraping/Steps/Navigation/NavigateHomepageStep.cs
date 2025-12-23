@@ -18,7 +18,8 @@ public class NavigateHomepageStep : BaseScrapingStep
         IConfiguration configuration)
         : base(logger, selectorService, debugService, configuration)
     {
-        _baseUrl = configuration.GetValue<string>("Scraping:BaseUrl") ?? "https://www.bom.gov.au/";
+        _baseUrl = configuration.GetValue<string>("Scraping:BaseUrl")
+            ?? throw new InvalidOperationException("Scraping:BaseUrl configuration is required. Set it in appsettings.json or via SCRAPING__BASEURL environment variable.");
     }
     
     public override bool CanExecute(ScrapingContext context)

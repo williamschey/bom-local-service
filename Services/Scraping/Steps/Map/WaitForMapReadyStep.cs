@@ -18,7 +18,12 @@ public class WaitForMapReadyStep : BaseScrapingStep
         IConfiguration configuration)
         : base(logger, selectorService, debugService, configuration)
     {
-        _tileRenderWaitMs = configuration.GetValue<int>("Screenshot:TileRenderWaitMs", 5000);
+        var tileRenderWaitMsConfig = configuration.GetValue<int?>("Screenshot:TileRenderWaitMs");
+        if (!tileRenderWaitMsConfig.HasValue)
+        {
+            throw new InvalidOperationException("Screenshot:TileRenderWaitMs configuration is required. Set it in appsettings.json or via SCREENSHOT__TILERENDERWAITMS environment variable.");
+        }
+        _tileRenderWaitMs = tileRenderWaitMsConfig.Value;
     }
     
     public override bool CanExecute(ScrapingContext context)

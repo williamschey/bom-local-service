@@ -60,8 +60,19 @@ public class RadarController : ControllerBase
             {
                 // Get cache status to include in 404 response
                 // Use cache service directly since this is cache management, not radar-specific
-                var cacheExpirationMinutes = (int)_configuration.GetValue<double>("CacheExpirationMinutes", 15.5);
-                var cacheManagementCheckIntervalMinutes = _configuration.GetValue<int>("CacheManagement:CheckIntervalMinutes", 5);
+                var cacheExpirationMinutesConfig = _configuration.GetValue<double?>("CacheExpirationMinutes");
+                if (!cacheExpirationMinutesConfig.HasValue)
+                {
+                    throw new InvalidOperationException("CacheExpirationMinutes configuration is required. Set it in appsettings.json or via CACHEEXPIRATIONMINUTES environment variable.");
+                }
+                var cacheExpirationMinutes = (int)cacheExpirationMinutesConfig.Value;
+                
+                var cacheManagementCheckIntervalMinutesConfig = _configuration.GetValue<int?>("CacheManagement:CheckIntervalMinutes");
+                if (!cacheManagementCheckIntervalMinutesConfig.HasValue)
+                {
+                    throw new InvalidOperationException("CacheManagement:CheckIntervalMinutes configuration is required. Set it in appsettings.json or via CACHEMANAGEMENT__CHECKINTERVALMINUTES environment variable.");
+                }
+                var cacheManagementCheckIntervalMinutes = cacheManagementCheckIntervalMinutesConfig.Value;
                 var cacheStatus = await _cacheService.GetCacheStatusAsync(
                     suburb, 
                     state, 
@@ -288,7 +299,14 @@ public class RadarController : ControllerBase
 
             // Validate time range size to prevent excessive data loading
             // Default: base limit on cache retention, but allow override via config
-            var cacheRetentionHours = _configuration.GetValue<int>("CacheRetentionHours", 24);
+            var cacheRetentionHoursConfig = _configuration.GetValue<int?>("CacheRetentionHours");
+            if (!cacheRetentionHoursConfig.HasValue)
+            {
+                throw new InvalidOperationException("CacheRetentionHours configuration is required. Set it in appsettings.json or via CACHERETENTIONHOURS environment variable.");
+            }
+            var cacheRetentionHours = cacheRetentionHoursConfig.Value;
+            
+            // TimeSeries:MaxTimeRangeHours is optional (nullable)
             var configuredMaxHours = _configuration.GetValue<int?>("TimeSeries:MaxTimeRangeHours");
             
             // Use configured value if set, otherwise use cache retention (with minimum of 24 hours)
@@ -331,8 +349,19 @@ public class RadarController : ControllerBase
                 });
 
                 // Get cache status to include in 404 response
-                var cacheExpirationMinutes = (int)_configuration.GetValue<double>("CacheExpirationMinutes", 15.5);
-                var cacheManagementCheckIntervalMinutes = _configuration.GetValue<int>("CacheManagement:CheckIntervalMinutes", 5);
+                var cacheExpirationMinutesConfig = _configuration.GetValue<double?>("CacheExpirationMinutes");
+                if (!cacheExpirationMinutesConfig.HasValue)
+                {
+                    throw new InvalidOperationException("CacheExpirationMinutes configuration is required. Set it in appsettings.json or via CACHEEXPIRATIONMINUTES environment variable.");
+                }
+                var cacheExpirationMinutes = (int)cacheExpirationMinutesConfig.Value;
+                
+                var cacheManagementCheckIntervalMinutesConfig = _configuration.GetValue<int?>("CacheManagement:CheckIntervalMinutes");
+                if (!cacheManagementCheckIntervalMinutesConfig.HasValue)
+                {
+                    throw new InvalidOperationException("CacheManagement:CheckIntervalMinutes configuration is required. Set it in appsettings.json or via CACHEMANAGEMENT__CHECKINTERVALMINUTES environment variable.");
+                }
+                var cacheManagementCheckIntervalMinutes = cacheManagementCheckIntervalMinutesConfig.Value;
                 var cacheStatus = await _cacheService.GetCacheStatusAsync(
                     suburb, 
                     state, 
