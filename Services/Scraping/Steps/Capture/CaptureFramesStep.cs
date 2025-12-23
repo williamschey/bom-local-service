@@ -91,12 +91,12 @@ public class CaptureFramesStep : BaseScrapingStep
                 await context.Page.WaitForTimeoutAsync(300);
                 
                 // Try extracting timestamp with a retry in case the label is still updating
-                var frameTimestamp = await ExtractTimestampFromDisplayAsync(context.Page);
+                var frameTimestamp = await ExtractTimestampFromDisplayAsync(context.Page, context);
                 if (frameTimestamp == null)
                 {
                     // Retry once after a short wait in case label was updating
                     await context.Page.WaitForTimeoutAsync(200);
-                    frameTimestamp = await ExtractTimestampFromDisplayAsync(context.Page);
+                    frameTimestamp = await ExtractTimestampFromDisplayAsync(context.Page, context);
                 }
                 
                 // Fallback: calculate expected timestamp from observation time and frame index if we can't parse it
@@ -112,8 +112,8 @@ public class CaptureFramesStep : BaseScrapingStep
                 {
                     Logger.LogWarning("Step {Step}: Frame {FrameIndex} has same timestamp ({Timestamp}) as previous frame. Waiting for display to update...", 
                         Name, frameIndex, frameTimestamp);
-                    await WaitForDisplayLabelToChangeAsync(context.Page, previousTimestamp.Value);
-                    frameTimestamp = await ExtractTimestampFromDisplayAsync(context.Page);
+                    await WaitForDisplayLabelToChangeAsync(context.Page, previousTimestamp.Value, context);
+                    frameTimestamp = await ExtractTimestampFromDisplayAsync(context.Page, context);
                     if (frameTimestamp == null || frameTimestamp == previousTimestamp.Value)
                     {
                         if (context.LastUpdatedInfo?.ObservationTime != null && context.FrameInfo != null && frameIndex < context.FrameInfo.Count)
@@ -161,7 +161,7 @@ public class CaptureFramesStep : BaseScrapingStep
                 {
                     await DismissModalOverlaysAsync(context.Page);
                     
-                    var currentTimestamp = await ExtractTimestampFromDisplayAsync(context.Page);
+                    var currentTimestamp = await ExtractTimestampFromDisplayAsync(context.Page, context);
                     
                     await stepForwardButton.ClickAsync(new LocatorClickOptions { Force = true });
                     
@@ -201,7 +201,7 @@ public class CaptureFramesStep : BaseScrapingStep
     /// <summary>
     /// Extracts the UTC timestamp from the frame display label
     /// </summary>
-    private async Task<DateTime?> ExtractTimestampFromDisplayAsync(IPage page)
+    private async Task<DateTime?> ExtractTimestampFromDisplayAsync(IPage page, ScrapingContext? context = null)
     {
         try
         {
@@ -222,8 +222,50 @@ public class CaptureFramesStep : BaseScrapingStep
             if (timestampMatch.Success)
             {
                 var timestampStr = timestampMatch.Groups[0].Value;
-                Logger.LogInformation("Matched timestamp pattern: '{Timestamp}' from label: '{Label}'", timestampStr, trimmedLabel);
-                if (TryParseTimestamp(timestampStr, out var frameTimestampUtc))
+                
+                // Check for timezone abbreviation in the full label (not just the matched timestamp)
+                // BOM website may display timezone elsewhere in the label text
+                string? detectedTimezone = null;
+                if (trimmedLabel.Contains("AEDT", StringComparison.OrdinalIgnoreCase))
+                {
+                    detectedTimezone = "AEDT";
+                }
+                else if (trimmedLabel.Contains("AEST", StringComparison.OrdinalIgnoreCase))
+                {
+                    detectedTimezone = "AEST";
+                }
+                
+                // Fallback: If timezone not found in frame label, try to extract it from metadata
+                // The metadata has the timezone (e.g., "9:40 pm AEST"), so we can use that for frames too
+                if (detectedTimezone == null && context != null)
+                {
+                    try
+                    {
+                        var metadataText = await page.EvaluateAsync<string>(JavaScriptTemplates.ExtractWeatherMetadata);
+                        if (!string.IsNullOrEmpty(metadataText))
+                        {
+                            if (metadataText.Contains("AEDT", StringComparison.OrdinalIgnoreCase))
+                            {
+                                detectedTimezone = "AEDT";
+                                Logger.LogDebug("Detected timezone AEDT from metadata text");
+                            }
+                            else if (metadataText.Contains("AEST", StringComparison.OrdinalIgnoreCase))
+                            {
+                                detectedTimezone = "AEST";
+                                Logger.LogDebug("Detected timezone AEST from metadata text");
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogDebug(ex, "Failed to extract timezone from metadata, using configured timezone");
+                    }
+                }
+                
+                Logger.LogInformation("Matched timestamp pattern: '{Timestamp}' from label: '{Label}' (detected timezone: {Tz})", 
+                    timestampStr, trimmedLabel, detectedTimezone ?? "none");
+                
+                if (TryParseTimestamp(timestampStr, detectedTimezone, out var frameTimestampUtc))
                 {
                     Logger.LogInformation("Successfully parsed frame timestamp: {Timestamp} UTC", frameTimestampUtc);
                     return frameTimestampUtc;
@@ -247,21 +289,55 @@ public class CaptureFramesStep : BaseScrapingStep
         }
     }
     
-    private bool TryParseTimestamp(string timestampStr, out DateTime timestampUtc)
+    private bool TryParseTimestamp(string timestampStr, string? timezoneAbbreviation, out DateTime timestampUtc)
     {
         timestampUtc = DateTime.MinValue;
         
         try
         {
-            // Get configured timezone
-            var timezone = Configuration.GetValue<string>("Timezone");
-            if (string.IsNullOrEmpty(timezone))
-            {
-                Logger.LogWarning("Timezone not configured, cannot parse timestamp correctly");
-                return false;
-            }
+            // Determine timezone based on detected abbreviation or configured default
+            TimeZoneInfo timeZoneInfo;
             
-            var timeZoneInfo = TimeZoneInfo.FindSystemTimeZoneById(timezone);
+            if (!string.IsNullOrEmpty(timezoneAbbreviation))
+            {
+                // Map timezone abbreviations to actual timezones (same logic as TimeParsingService)
+                // - "AEST" = UTC+10 (Australian Eastern Standard Time) - Brisbane year-round, Sydney/Melbourne in winter
+                // - "AEDT" = UTC+11 (Australian Eastern Daylight Time) - Sydney/Melbourne in summer (Oct-Apr), never Brisbane
+                if (timezoneAbbreviation.Contains("AEST", StringComparison.OrdinalIgnoreCase))
+                {
+                    timeZoneInfo = TimeZoneInfo.FindSystemTimeZoneById("Australia/Brisbane");
+                    Logger.LogDebug("Using Brisbane timezone (AEST, UTC+10) for frame timestamp");
+                }
+                else if (timezoneAbbreviation.Contains("AEDT", StringComparison.OrdinalIgnoreCase))
+                {
+                    timeZoneInfo = TimeZoneInfo.FindSystemTimeZoneById("Australia/Sydney");
+                    Logger.LogDebug("Using Sydney timezone (AEDT, UTC+11) for frame timestamp");
+                }
+                else
+                {
+                    // Fallback to configured timezone if abbreviation is unrecognized
+                    var timezone = Configuration.GetValue<string>("Timezone");
+                    if (string.IsNullOrEmpty(timezone))
+                    {
+                        Logger.LogWarning("Timezone not configured, cannot parse timestamp correctly");
+                        return false;
+                    }
+                    timeZoneInfo = TimeZoneInfo.FindSystemTimeZoneById(timezone);
+                    Logger.LogDebug("Using configured timezone '{Timezone}' for frame timestamp", timezone);
+                }
+            }
+            else
+            {
+                // No timezone detected - use configured default
+                var timezone = Configuration.GetValue<string>("Timezone");
+                if (string.IsNullOrEmpty(timezone))
+                {
+                    Logger.LogWarning("Timezone not configured, cannot parse timestamp correctly");
+                    return false;
+                }
+                timeZoneInfo = TimeZoneInfo.FindSystemTimeZoneById(timezone);
+                Logger.LogDebug("No timezone abbreviation detected, using configured timezone '{Timezone}' for frame timestamp", timezone);
+            }
             
             // Try common Australian date formats
             // Format: "Wednesday 17 Dec, 11:05 pm" or "17 Dec, 11:05 pm"
@@ -297,22 +373,17 @@ public class CaptureFramesStep : BaseScrapingStep
             // If year is not specified, assume current year
             if (localTime.Year == 1)
             {
-                localTime = new DateTime(DateTime.Now.Year, localTime.Month, localTime.Day, 
+                localTime = new DateTime(DateTime.UtcNow.Year, localTime.Month, localTime.Day, 
                     localTime.Hour, localTime.Minute, localTime.Second);
             }
             
-            // Get current time in the configured timezone to determine the date
-            var nowInTz = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, timeZoneInfo);
-            var dateTimeInTz = nowInTz.Date.Add(localTime.TimeOfDay);
+            // The parsed timestamp includes both date and time (e.g., "23 Dec, 11:45 pm")
+            // localTime already contains the complete date and time from the parsed string
+            // We treat it as being in the target timezone (DateTimeKind.Unspecified), then convert to UTC
+            timestampUtc = TimeZoneInfo.ConvertTimeToUtc(localTime, timeZoneInfo);
             
-            // If the time is in the future, it must be from yesterday
-            if (dateTimeInTz > nowInTz)
-            {
-                dateTimeInTz = dateTimeInTz.AddDays(-1);
-            }
-            
-            // Convert to UTC
-            timestampUtc = TimeZoneInfo.ConvertTimeToUtc(dateTimeInTz, timeZoneInfo);
+            Logger.LogDebug("Parsed frame timestamp '{TimestampStr}' with timezone '{TzAbbrev}' as {LocalTime} local ({UtcTime} UTC)", 
+                timestampStr, timezoneAbbreviation ?? "default", localTime, timestampUtc);
             
             return true;
         }
@@ -323,14 +394,14 @@ public class CaptureFramesStep : BaseScrapingStep
         }
     }
     
-    private async Task WaitForDisplayLabelToChangeAsync(IPage page, DateTime currentTimestamp, int maxWaitMs = 5000)
+    private async Task WaitForDisplayLabelToChangeAsync(IPage page, DateTime currentTimestamp, ScrapingContext? context = null, int maxWaitMs = 5000)
     {
         try
         {
             var startTime = DateTime.UtcNow;
             while ((DateTime.UtcNow - startTime).TotalMilliseconds < maxWaitMs)
             {
-                var newTimestamp = await ExtractTimestampFromDisplayAsync(page);
+                var newTimestamp = await ExtractTimestampFromDisplayAsync(page, context);
                 if (newTimestamp.HasValue && newTimestamp.Value != currentTimestamp)
                 {
                     return;
