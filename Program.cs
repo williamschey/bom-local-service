@@ -1,6 +1,5 @@
 using BomLocalService.Extensions;
 using BomLocalService.Services.Interfaces;
-using BomLocalService.Services.Scraping;
 
 var builder = WebApplication.CreateBuilder(args);
 

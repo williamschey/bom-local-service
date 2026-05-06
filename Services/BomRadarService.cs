@@ -185,6 +185,9 @@ public class BomRadarService : IBomRadarService, IDisposable
         if (needsUpdate)
         {
             // Trigger async update (fire and forget)
+            // Do not pass the caller's cancellationToken to Task.Run: for HTTP that token is tied to
+            // RequestAborted and often fires as soon as the response is sent, so the update never starts.
+            // FetchAndCacheScreenshotAsync already uses CancellationToken.None for the scrape work.
             _ = Task.Run(async () =>
             {
                 try
@@ -195,7 +198,7 @@ public class BomRadarService : IBomRadarService, IDisposable
                 {
                     _logger.LogError(ex, "Error during background cache update for {Suburb}, {State}", suburb, state);
                 }
-            }, cancellationToken);
+            });
             
             status.UpdateTriggered = true;
             status.Message = status.CacheExists 

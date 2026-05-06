@@ -28,8 +28,8 @@ public class RadarScrapingWorkflow : IRadarScrapingWorkflow
         "ClickRadarLink",
         "WaitForMapReady",
         "PauseRadar",
-        "ResetToFirstFrame",
         "ExtractMetadata",
+        "ResetToFirstFrame",
         "CalculateMapBounds",
         "CaptureFrames"
     };

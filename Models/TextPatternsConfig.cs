@@ -6,7 +6,7 @@ namespace BomLocalService.Models;
 public class TextPatternsConfig
 {
     public string ResultsCountPattern { get; set; } = @"(\d+)\s+of\s+(\d+)";
-    public string TimestampPattern { get; set; } = @"(?:[A-Za-z]+\s+)?\d{1,2}\s+[A-Za-z]{3},?\s+\d{1,2}:\d{2}\s+(?:am|pm)";
+    public string TimestampPattern { get; set; } = @"(?:[A-Za-z]+\s+)?\d{1,2}\s+[A-Za-z]+,?\s+\d{1,2}:\d{2}\s*(?:am|pm)";
     public string ObservationTimePattern { get; set; } = @"Observations:\s*(\d+)\s*minutes?\s*ago";
     public string ForecastTimePattern { get; set; } = @"Forecast:\s*(\d+)\s*minutes?\s+ago";
     public string ForecastHourAgoPattern { get; set; } = @"Forecast:\s*an\s+hour\s+ago";

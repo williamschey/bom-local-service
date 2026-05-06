@@ -31,16 +31,43 @@ public class PauseRadarStep : BaseScrapingStep
             
             var playPauseButton = SelectorService.GetLocator(context.Page, Selectors.PlayPauseButton);
             await playPauseButton.WaitForAsync(new LocatorWaitForOptions { Timeout = 5000 });
-            
-            var buttonLabel = await playPauseButton.Locator(Selectors.PlayPauseLabel.Selectors[0]).TextContentAsync();
-            if (buttonLabel?.Trim().Equals(TextPatterns.ExpectedTexts["PauseButtonLabel"], StringComparison.OrdinalIgnoreCase) == true)
+
+            // New spatial map often uses one step-through control; label may be on the button or in .bom-scrub-action__label
+            string? buttonLabel = null;
+            try
+            {
+                var labelLoc = playPauseButton.Locator(Selectors.PlayPauseLabel.Selectors[0]).First;
+                if (await labelLoc.CountAsync() > 0)
+                    buttonLabel = (await labelLoc.TextContentAsync())?.Trim();
+            }
+            catch
+            {
+                /* use inner text */
+            }
+
+            buttonLabel ??= (await playPauseButton.InnerTextAsync())?.Trim();
+
+            if (buttonLabel?.Equals(TextPatterns.ExpectedTexts["PauseButtonLabel"], StringComparison.OrdinalIgnoreCase) == true)
             {
                 Logger.LogInformation("Step {Step}: Radar is playing, pausing it", Name);
                 await playPauseButton.ClickAsync();
                 await context.Page.WaitForTimeoutAsync(300);
-                
-                buttonLabel = await playPauseButton.Locator(Selectors.PlayPauseLabel.Selectors[0]).TextContentAsync();
-                if (buttonLabel?.Trim().Equals(TextPatterns.ExpectedTexts["PlayButtonLabel"], StringComparison.OrdinalIgnoreCase) != true)
+
+                // Clear so post-click read always runs; otherwise stale "Pause" skips the ??= InnerText fallback when the label child is missing
+                buttonLabel = null;
+                try
+                {
+                    var labelLoc = playPauseButton.Locator(Selectors.PlayPauseLabel.Selectors[0]).First;
+                    if (await labelLoc.CountAsync() > 0)
+                        buttonLabel = (await labelLoc.TextContentAsync())?.Trim();
+                }
+                catch
+                {
+                    buttonLabel = null;
+                }
+
+                buttonLabel ??= (await playPauseButton.InnerTextAsync())?.Trim();
+                if (buttonLabel?.Equals(TextPatterns.ExpectedTexts["PlayButtonLabel"], StringComparison.OrdinalIgnoreCase) != true)
                 {
                     Logger.LogWarning("Step {Step}: Radar may not be paused after click, continuing anyway", Name);
                 }
