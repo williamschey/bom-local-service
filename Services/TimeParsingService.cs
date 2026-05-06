@@ -41,26 +41,30 @@ public class TimeParsingService : ITimeParsingService
     {
         try
         {
-            // Look for the weather metadata section using the correct selector
-            // HTML structure: <section data-testid="weatherMetadata"> with aria-label="Last updated"
-            var metadataSection = page.Locator("section[data-testid='weatherMetadata'], section[aria-label='Last updated']").First;
-            
-            // Extract text from each div separately to preserve structure
-            // Structure: <div>Observations: X minutes ago, 9:40 pm AEST</div><div>at Gympie...</div><div>Forecast: ...</div>
+            // BOM layouts: legacy map used inner divs; location/spatial pages often use C07_WeatherMetadata with
+            // a single section and visible text in the section (no div split). Prefer normalized innerText of the
+            // section so both shapes parse the same.
+            var metadataSection = page.Locator(
+                "section[data-testid='weatherMetadata'], " +
+                "section[aria-label='Last updated'], " +
+                "section[data-component='C07_WeatherMetadata']").First;
+
             var lastUpdatedText = await page.EvaluateAsync<string>(@"() => {
-                const section = document.querySelector('section[data-testid=""weatherMetadata""]') || 
-                               document.querySelector('section[aria-label=""Last updated""]');
+                const section =
+                    document.querySelector('section[data-testid=""weatherMetadata""]') ||
+                    document.querySelector('section[aria-label=""Last updated""]') ||
+                    document.querySelector('section[data-component=""C07_WeatherMetadata""]');
                 if (!section) return null;
-                
-                // Get all divs and join with newlines to preserve structure
-                const divs = section.querySelectorAll('div');
-                return Array.from(divs).map(div => div.textContent.trim()).filter(text => text).join(' ');
+                const raw = section.innerText || section.textContent || '';
+                return raw.replace(/\s+/g, ' ').trim();
             }");
-            
+
             if (string.IsNullOrEmpty(lastUpdatedText))
             {
-                // Fallback: get all text content
-                lastUpdatedText = await metadataSection.TextContentAsync();
+                var fallback = await metadataSection.InnerTextAsync();
+                lastUpdatedText = string.IsNullOrEmpty(fallback)
+                    ? null
+                    : Regex.Replace(fallback, @"\s+", " ").Trim();
             }
 
             return ParseLastUpdatedText(lastUpdatedText ?? string.Empty);
@@ -82,8 +86,10 @@ public class TimeParsingService : ITimeParsingService
         _logger.LogInformation("Parsing last updated text: {Text}", text);
 
         // Parse observation time from time string (e.g., "9:40 pm AEST")
-        // Ignore "minutes ago" - client will calculate this dynamically from UTC timestamp
-        var observationMatch = Regex.Match(text, @"Observations:\s*(?:\d+\s*minutes?\s*ago)?[,\s]+([\d:]+(?:\s*[ap]m)?)\s+([A-Z]{3,4})(?:at|\s+at|,|$)", RegexOptions.IgnoreCase);
+        // Ignore relative prefix — BOM uses "a minute ago", "6 minutes ago", "an hour ago", "2 hours ago", etc.
+        var observationMatch = Regex.Match(text,
+            @"Observations:\s*(?:a\s+minute\s+ago|\d+\s*minutes?\s+ago|an\s+hour\s+ago|\d+\s*hours?\s+ago)?[,\s]+([\d:]+(?:\s*[ap]m)?)\s+([A-Z]{3,4})(?:at|\s+at|,|$)",
+            RegexOptions.IgnoreCase);
         if (observationMatch.Success && observationMatch.Groups.Count >= 3 && observationMatch.Groups[1].Success)
         {
             var timeStr = observationMatch.Groups[1].Value.Trim();
@@ -114,8 +120,10 @@ public class TimeParsingService : ITimeParsingService
         }
 
         // Parse forecast time from time string (e.g., "7:50 pm AEST")
-        // Ignore "minutes ago" - client will calculate this dynamically from UTC timestamp
-        var forecastMatch = Regex.Match(text, @"Forecast:\s*(?:an\s+hour\s+ago|\d+\s*minutes?\s*ago)?[,\s]*([\d:]+(?:\s*[ap]m)?)\s+([A-Z]+)(?:\s+at|$)", RegexOptions.IgnoreCase);
+        // Ignore relative prefix (minutes/hours ago) — client derives "ago" from the UTC timestamp
+        var forecastMatch = Regex.Match(text,
+            @"Forecast:\s*(?:\d+\s*hours?\s+ago|an\s+hour\s+ago|\d+\s*minutes?\s*ago)?[,\s]*([\d:]+(?:\s*[ap]m)?)\s+([A-Z]+)(?:\s+at|$)",
+            RegexOptions.IgnoreCase);
         if (forecastMatch.Success && forecastMatch.Groups[1].Success)
         {
             var timeStr = forecastMatch.Groups[1].Value.Trim();
