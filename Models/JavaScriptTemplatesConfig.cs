@@ -53,6 +53,7 @@ public class JavaScriptTemplatesConfig
 
     public string CheckActiveFrameSegment { get; set; } = @"() => {
         const segments = Array.from(document.querySelectorAll('[data-testid=""bom-scrub-segment""]'));
+        if (segments.length === 0) return true;
         const activeSegment = segments.find(s => {
             const style = window.getComputedStyle(s);
             return style.backgroundColor !== 'rgb(148, 148, 148)' && style.backgroundColor !== 'rgb(148, 148, 148)';
@@ -73,7 +74,7 @@ public class JavaScriptTemplatesConfig
             let minutes = null;
             
             // Parse timestamp format: ""Wednesday 17 Dec, 11:05 pm"" or ""17 Dec, 11:05 pm""
-            const timestampMatch = ariaLabel.match(/(?:[A-Za-z]+\s+)?(\d{1,2})\s+([A-Za-z]{3}),?\s+(\d{1,2}):(\d{2})\s+(am|pm)/i);
+            const timestampMatch = ariaLabel.match(/(?:[A-Za-z]+\s+)?(\d{1,2})\s+([A-Za-z]+),?\s+(\d{1,2}):(\d{2})\s*(am|pm)/i);
             if (timestampMatch) {
                 try {
                     const day = parseInt(timestampMatch[1]);

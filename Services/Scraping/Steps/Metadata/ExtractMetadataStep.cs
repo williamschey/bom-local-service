@@ -1,15 +1,18 @@
+using System.Text.Json;
+using BomLocalService.Models;
 using BomLocalService.Services.Interfaces;
 using BomLocalService.Services.Scraping;
+using BomLocalService.Utilities;
 
 namespace BomLocalService.Services.Scraping.Steps.Metadata;
 
 public class ExtractMetadataStep : BaseScrapingStep
 {
     private readonly ITimeParsingService _timeParsingService;
-    
+
     public override string Name => "ExtractMetadata";
-    public override string[] Prerequisites => new[] { "ResetToFirstFrame" };
-    
+    public override string[] Prerequisites => new[] { "PauseRadar" };
+
     public ExtractMetadataStep(
         ILogger<ExtractMetadataStep> logger,
         ISelectorService selectorService,
@@ -20,41 +23,67 @@ public class ExtractMetadataStep : BaseScrapingStep
     {
         _timeParsingService = timeParsingService;
     }
-    
+
     public override bool CanExecute(ScrapingContext context)
     {
         return context.IsMapReady;
     }
-    
+
     public override async Task<ScrapingStepResult> ExecuteAsync(ScrapingContext context, CancellationToken cancellationToken)
     {
         try
         {
             Logger.LogInformation("Step {Step}: Extracting metadata and frame information", Name);
-            
+
             var lastUpdatedInfo = await _timeParsingService.ExtractLastUpdatedInfoAsync(context.Page);
             context.LastUpdatedInfo = lastUpdatedInfo;
-            
-            // Extract frame info
+
+            var frameCount = CacheHelper.GetFrameCountForDataType(Configuration, CachedDataType.Radar);
+            var defaults = Enumerable.Range(0, frameCount)
+                .Select(i => (index: i, minutesAgo: 40 - i * 5))
+                .ToList();
+
             try
             {
-                var frameInfo = await context.Page.EvaluateAsync<object[]>(JavaScriptTemplates.ExtractFrameInfo);
-                var result = new List<(int index, int minutesAgo)>();
-                for (int i = 0; i < 7; i++)
+                var element = await context.Page.EvaluateAsync<JsonElement>(JavaScriptTemplates.ExtractFrameInfo);
+                if (element.ValueKind == JsonValueKind.Array && element.GetArrayLength() > 0)
                 {
-                    var minutesAgo = 40 - (i * 5);
-                    result.Add((i, minutesAgo));
+                    var byIndex = new Dictionary<int, int>();
+                    foreach (var item in element.EnumerateArray())
+                    {
+                        if (item.ValueKind != JsonValueKind.Object)
+                            continue;
+
+                        var idx = item.GetProperty("index").GetInt32();
+                        if (item.TryGetProperty("minutesAgo", out var m) && m.ValueKind == JsonValueKind.Number)
+                            byIndex[idx] = m.GetInt32();
+                    }
+
+                    if (byIndex.Count > 0)
+                    {
+                        context.FrameInfo = Enumerable.Range(0, frameCount)
+                            .Select(i => (i, byIndex.TryGetValue(i, out var mm) ? mm : defaults[i].minutesAgo))
+                            .ToList();
+                        Logger.LogInformation("Step {Step}: Parsed frame offsets from segment aria-labels where available", Name);
+                    }
+                    else
+                    {
+                        context.FrameInfo = defaults;
+                        Logger.LogInformation("Step {Step}: Segment times not parsed; using default ladder", Name);
+                    }
                 }
-                context.FrameInfo = result;
+                else
+                {
+                    context.FrameInfo = defaults;
+                    Logger.LogInformation("Step {Step}: No segment array from page; using default ladder", Name);
+                }
             }
             catch (Exception ex)
             {
                 Logger.LogWarning(ex, "Step {Step}: Failed to extract frame info, using defaults", Name);
-                context.FrameInfo = Enumerable.Range(0, 7)
-                    .Select(i => (i, 40 - (i * 5)))
-                    .ToList();
+                context.FrameInfo = defaults;
             }
-            
+
             return ScrapingStepResult.Successful();
         }
         catch (Exception ex)
@@ -65,4 +94,3 @@ public class ExtractMetadataStep : BaseScrapingStep
         }
     }
 }
-

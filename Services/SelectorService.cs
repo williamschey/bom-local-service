@@ -52,9 +52,17 @@ public class SelectorService : ISelectorService
         {
             throw new ArgumentException($"No selectors configured for {config.Name}");
         }
-        
-        // Returns first selector as locator (for cases where we know it exists)
-        return page.Locator(config.Selectors[0]).First;
+
+        // Match any configured selector (BOM occasionally renames test ids; list is tried in order)
+        var combined = page.Locator(config.Selectors[0]).First;
+        for (var i = 1; i < config.Selectors.Length; i++)
+        {
+            combined = combined.Or(page.Locator(config.Selectors[i]).First);
+        }
+
+        // Or() unions alternatives; BOM sometimes renders duplicates (e.g. responsive + hidden).
+        // Pin to a single element so Playwright strict mode does not reject clicks.
+        return combined.First;
     }
 }
 
