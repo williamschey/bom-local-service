@@ -2,7 +2,7 @@ name: "BOM Local Service"
 version: "v0.0.6"
 slug: "bom_local_service"
 description: "Local caching service for Australian Bureau of Meteorology radar data"
-url: "https://github.com/alexhopeoconnor/bom-local-service"
+url: "https://github.com/williamschey/bom-local-service"
 arch:
   - amd64
   - aarch64
