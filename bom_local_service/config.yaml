@@ -32,10 +32,4 @@ schema:
   debug_enabled: bool
 environment:
   CACHEDIRECTORY: /share/bom-cache
-  CACHERETENTIONHOURS: cache_retention_hours
-  CACHEEXPIRATIONMINUTES: cache_expiration_minutes
-  TIMEZONE: timezone
-  CACHEMANAGEMENT__CHECKINTERVALMINUTES: cache_check_interval_minutes
-  CACHECLEANUP__INTERVALHOURS: cache_cleanup_interval_hours
-  DEBUG__ENABLED: debug_enabled
   ASPNETCORE_URLS: "http://+:8080"
