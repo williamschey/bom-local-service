@@ -44,8 +44,8 @@ jobs:
         id: push
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: ./Dockerfile
+          context: ./bom_local_service
+          file: ./bom_local_service/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
